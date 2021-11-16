@@ -419,7 +419,7 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
                      11: ["landcover/fuel_winslow/study_regions/deadbiomass_litter.nc"], 12: ["landcover/fuel_winslow/study_regions/livebiomass_leaf.nc"], \
                      13: ["landcover/fuel_winslow/study_regions/connectivity.nc"], 14: ["climate/primary/rh.nc"], 15: ["climate/gridmet/fm1000.nc"], \
                      16: ["climate/era5/cape.nc"], 17: ["landcover/nlcd/urban.nc"], 18: ["climate/ucla_era5_wrf/ffwi_max3.nc"], 19: ["climate/primary/tmin.nc"], \
-                     20: ["climate/ucla_era5_wrf/wind_max3.nc"]}
+                     20: ["climate/ucla_era5_wrf/wind_max3.nc"], 21: ["population/campdist.nc"], 22: ["population/campnum.nc"], 23: ["population/roaddist.nc"]}
     pred_season_arr= {1: "warm", 2: "antecedent", 3: "annual", 4: "static", 5: "moving_average"} 
                       #be careful about indexing since this is correlated with input for multivariate regression 
 
@@ -493,7 +493,11 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
                 pred_data= np.kron(pred_data, np.ones((12, 1, 1)))
                 return pred_data[0:tot_months]
         elif pred_season == "static":
-            return pred_data
+            if savg:
+                pred_data= np.tile(pred_data, (tot_months, 1, 1)) #technically, this doesn't make sense; I have only used this option to create a monthly time series for cross-sectional purposes
+                return np.nanmean(pred_data, axis= (1, 2))
+            else:
+                return pred_data
 
 
 def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year= 2019): 
@@ -507,9 +511,9 @@ def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year
     tot_months= (final_year + 1 - start_year)*12
     
     if lflag == 'L3':
-        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec': [], 'ETo': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], \
-                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'Ant_VPD': [], 'Avgprec': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI': [], 'Tmin': [],
-                          'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
+        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], 'Elev': [], \
+                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'Ant_VPD': [], 'Avgprec': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI': [], \
+                          'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
     
         for r in (1 + np.arange(len(regname), dtype= int)):
             print("Creating dataframe for %s"%regname[r])
@@ -518,7 +522,6 @@ def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year
             reg_vpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_prec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_antprec= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 2, regindx= r, tscale= "monthly", savg= True)
-            reg_eto= clim_pred_var(pred_file_indx= 5, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_forest= clim_pred_var(pred_file_indx= 6, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
             reg_solar= clim_pred_var(pred_file_indx= 7, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_wind= clim_pred_var(pred_file_indx= 8, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
@@ -534,20 +537,24 @@ def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year
             reg_urban= clim_pred_var(pred_file_indx= 17, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
             reg_ffwi= clim_pred_var(pred_file_indx= 18, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_tmin= clim_pred_var(pred_file_indx= 19, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_elev= clim_pred_var(pred_file_indx= 9, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
+            reg_campdist= clim_pred_var(pred_file_indx= 21, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
+            reg_campnum= clim_pred_var(pred_file_indx= 22, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
+            reg_roaddist= clim_pred_var(pred_file_indx= 23, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
 
 
             reg_fire_freq= mon_fire_freq(wildfiredf= firedf, regindx= r, start_year= start_year, final_year= final_year).flatten()
             month_arr= np.linspace(0, tot_months - 1, tot_months, dtype= int)
 
-            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd, 'Prec': reg_prec, 'Antprec': reg_antprec, 'ETo': reg_eto, 
-                        'Forest': reg_forest, 'Solar': reg_solar, 'Wind': reg_wind, 'Grassland': reg_grass, 'RH': reg_rh, 'FM1000': reg_fm1000, \
-                        'Ant_Tmax': reg_anttmax, 'Ant_VPD': reg_antvpd, 'Avgprec': reg_avgprec, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, \
-                        'FFWI': reg_ffwi, 'Tmin': reg_tmin, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': r*np.ones(tot_months, dtype= int)}), ignore_index=True)
+            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd, 'Prec': reg_prec, 'Antprec': reg_antprec, 'Forest': reg_forest, 'Solar': reg_solar, \
+                        'Wind': reg_wind, 'Grassland': reg_grass, 'Elev': reg_elev,'RH': reg_rh, 'FM1000': reg_fm1000, 'Ant_Tmax': reg_anttmax, 'Ant_VPD': reg_antvpd, \
+                        'Avgprec': reg_avgprec, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, 'FFWI': reg_ffwi, 'Tmin': reg_tmin, 'Camp_dist': reg_campdist, \
+                        'Camp_num': reg_campnum, 'Road_dist': reg_roaddist, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': r*np.ones(tot_months, dtype= int)}), ignore_index=True)
     
     elif lflag == 'L4':
-        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec': [], 'ETo': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], \
-                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'Ant_VPD': [], 'Avgprec': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI': [], 'Tmin': [], \
-                          'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int'), 'l4_indx': pd.Series(dtype= 'U8')})
+        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], 'Elev': [], \
+                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'Ant_VPD': [], 'Avgprec': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI': [], \
+                          'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int'), 'l4_indx': pd.Series(dtype= 'U8')})
     
         print("Creating dataframe for %s"%regname[regindx])
         regshp= bailey_ecoprovince_shp(region= regname[regindx], lflag= 'L4')
@@ -558,7 +565,6 @@ def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year
             reg_vpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_prec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_antprec= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 2, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_eto= clim_pred_var(pred_file_indx= 5, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_forest= clim_pred_var(pred_file_indx= 6, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_solar= clim_pred_var(pred_file_indx= 7, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_wind= clim_pred_var(pred_file_indx= 8, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
@@ -574,15 +580,18 @@ def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year
             reg_urban= clim_pred_var(pred_file_indx= 17, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_ffwi= clim_pred_var(pred_file_indx= 18, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_tmin= clim_pred_var(pred_file_indx= 19, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
+            reg_elev= clim_pred_var(pred_file_indx= 9, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
+            reg_campdist= clim_pred_var(pred_file_indx= 21, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
+            reg_campnum= clim_pred_var(pred_file_indx= 22, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
+            reg_roaddist= clim_pred_var(pred_file_indx= 23, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
 
             reg_fire_freq= mon_fire_freq_2(wildfiredf= firedf, regindx= regindx, l4indx= l, start_year= start_year, final_year= final_year).flatten()
             month_arr= np.linspace(0, tot_months - 1, tot_months, dtype= int)
 
-            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd, 'Prec': reg_prec, 'Antprec': reg_antprec, 'ETo': reg_eto, 
-                        'Forest': reg_forest, 'Solar': reg_solar, 'Wind': reg_wind, 'Grassland': reg_grass, 'RH': reg_rh, 'FM1000': reg_fm1000, \
-                        'Ant_Tmax': reg_anttmax, 'Ant_VPD': reg_antvpd, 'Avgprec': reg_avgprec, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, \
-                        'FFWI': reg_ffwi, 'Tmin': reg_tmin, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': regindx*np.ones(tot_months, dtype= int), \
-                        'l4_indx': np.repeat(l, tot_months).astype('U8')}), ignore_index=True)
+            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd, 'Prec': reg_prec, 'Antprec': reg_antprec, 'Forest': reg_forest, 'Solar': reg_solar, \
+                        'Wind': reg_wind, 'Grassland': reg_grass, 'Elev': reg_elev,'RH': reg_rh, 'FM1000': reg_fm1000, 'Ant_Tmax': reg_anttmax, 'Ant_VPD': reg_antvpd, \
+                        'Avgprec': reg_avgprec, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, 'FFWI': reg_ffwi, 'Tmin': reg_tmin, 'Camp_dist': reg_campdist, \
+                        'Camp_num': reg_campnum, 'Road_dist': reg_roaddist, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': regindx*np.ones(tot_months, dtype= int), 'l4_indx': np.repeat(l, tot_months).astype('U8')}), ignore_index=True)
     
     return reg_df #, reg_fire_ind
 
@@ -639,7 +648,7 @@ def init_fire_size_df(firefile, regindx, lflag= 'L3', start_year= 1984, final_ye
         regshp= bailey_ecoprovince_shp(region= regname[regindx], lflag= 'L4')
         l4regs= regshp['US_L4CODE'].unique()
 
-        for l in l4regs[0:2]:
+        for l in l4regs:
             reg_tmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_vpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
             reg_prec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
@@ -727,7 +736,7 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
         for m in merged.index.to_numpy():
             rc= merged['raster_coords'].loc[m]
             new_firedat[dict(time= rc[0], Y = rc[1], X= rc[2])]= (merged['cell_frac'].loc[m] * merged['fire_size'].loc[m])/1e6
-        new_firedat.to_netcdf('../data/burnarea_25km.nc')
+        new_firedat.to_netcdf('../data/burnarea_%s.nc'%res)
     
         print("Created a new fire burned area raster grid file!");
     

@@ -62,6 +62,7 @@ import tensorflow_probability as tfp
 tfd= tfp.distributions
 from tensorflow.keras.layers import Input, Dense, Activation, Concatenate
 from tensorflow.keras.callbacks import EarlyStopping, TensorBoard, ReduceLROnPlateau
+from tensorflow.keras import regularizers
 
 def zinb_model(parameter_vector):
     
@@ -201,8 +202,12 @@ class SeqBlock(tf.keras.layers.Layer):
         super(SeqBlock, self).__init__(name="SeqBlock")
         self.nnmodel= tf.keras.Sequential()
         for l in range(hidden_l):
-            self.nnmodel.add(Dense(n_neurs, activation="relu", kernel_initializer= initializer, name="h_%d"%(l+1)))
+            self.nnmodel.add(Dense(n_neurs, activation="relu",
+                                    kernel_initializer= initializer, 
+                                    kernel_regularizer=tf.keras.regularizers.l2(0.01),
+                                    name="h_%d"%(l+1)))
             self.nnmodel.add(tf.keras.layers.LayerNormalization())
+            self.nnmodel.add(tf.keras.layers.Dropout(0.2))
 
     def call(self, inputs):
         return self.nnmodel(inputs)
