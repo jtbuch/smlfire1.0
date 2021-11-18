@@ -772,6 +772,31 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
 
         return merged
 
+def file_io_func(firefile= None, firedf= None, lflag= 'L4', fflag= 'freq', io_flag= 'output'):
+    
+    regname= {1: "ca_sierra", 2: "ca_north_coast", 3: "ca_cent_coast", 4: "ca_south_coast", 5: "pnw_mts", 6: "columbia_plateau", 7:"northern_rockies", \
+          8: "middle_rockies", 9: "southern_rockies", 10: "am_semidesert", 11: "aznm_mts", 12: "im_semidesert", 13: "im_desert", 14: "northern_great_plains", \
+          15: "high_plains", 16: "colorado_plateau", 17: "sw_tablelands", 18: "ch_desert"}
+    
+    if fflag == 'freq':
+        file_dir= '../data/clim_reg_%s'%lflag + '_fire_freqs/'
+    elif fflag == 'size':
+        file_dir= '../data/clim_reg_%s'%lflag + '_fire_sizes/'
+    
+    if io_flag == 'output':
+        for r in tqdm(range(len(regname))):
+            if fflag == 'size':
+                data_df= init_fire_size_df(firefile= firefile, regindx= r+1, lflag= lflag)
+            elif fflag == 'freq':
+                data_df= init_fire_freq_df(firedf= firedf, regindx= r+1, regindx= r+1, lflag= lflag)
+            data_df.to_hdf(file_dir + 'clim_%s'%regname[r+1] + '_%s'%lflag + '_fire_%s'%fflag + '_data.h5', key= 'df', mode= 'w')
+    
+    elif io_flag == 'input':
+        dfs= [pd.read_hdf(file_dir + 'clim_%s'%regname[r+1] + '_%s'%lflag + '_fire_%s'%fflag + '_data.h5') for r in tqdm(range(len(regname)))]
+        tmpdf= pd.concat(dfs, ignore_index= True)
+        tmpdf= tmpdf.dropna().reset_index().drop(columns=['index'])
+        tmpdf.to_hdf('../data/clim_%s'%lflag + '_fire_%s'%fflag + '_data.h5', key= 'df', mode= 'w')
+
 #archived function for indiviudal climate-fire correlations from Park's .nc file
 
 #def init_fire_df(firefile):

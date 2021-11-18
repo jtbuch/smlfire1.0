@@ -204,10 +204,9 @@ class SeqBlock(tf.keras.layers.Layer):
         for l in range(hidden_l):
             self.nnmodel.add(Dense(n_neurs, activation="relu",
                                     kernel_initializer= initializer, 
-                                    kernel_regularizer=tf.keras.regularizers.l2(0.01),
-                                    name="h_%d"%(l+1)))
+                                    name="h_%d"%(l+1))) #kernel_regularizer=tf.keras.regularizers.l2(0.01),
             self.nnmodel.add(tf.keras.layers.LayerNormalization())
-            self.nnmodel.add(tf.keras.layers.Dropout(0.2))
+            #self.nnmodel.add(tf.keras.layers.Dropout(0.2))
 
     def call(self, inputs):
         return self.nnmodel(inputs)
