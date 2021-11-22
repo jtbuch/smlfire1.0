@@ -465,7 +465,7 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
             if savg: #savg = True ==> spatial average for fire frequency 
                 return np.mean(pred_data[fire_tim_ind], axis= (1, 2)).values
             else:
-                return pred_data[fire_tim_ind]
+                return pred_data[fire_tim_ind].values
             
         elif pred_season == "moving_average":
             fire_tim_ind_mavg= fire_tim_ind_func(pred_file, start_year, final_year, mov_avg= True)
@@ -497,7 +497,7 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
                 pred_data= np.tile(pred_data, (tot_months, 1, 1)) #technically, this doesn't make sense; I have only used this option to create a monthly time series for cross-sectional purposes
                 return np.nanmean(pred_data, axis= (1, 2))
             else:
-                return pred_data
+                return pred_data.values
 
 
 def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year= 2019): 
@@ -678,25 +678,31 @@ def init_fire_size_df(firefile, regindx, lflag= 'L3', start_year= 1984, final_ye
     return reg_df #, reg_fire_ind
 
         
-def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_year= 2019, fire_grid= False): 
+def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_year= 2019, fire_grid= False, debug= False): 
     
     # function to allocate individual fires from the firelist.txt file to a raster grid of varying resolutions. This serves two roles: 1) allows the predictions of fire probability for individual grid cells;
     # 2) enables the calculation of a (weighted) average for climate variables for each fire.
     
     tot_months= (final_year + 1 - start_year)*12
-    new_firedat= (firedat[:-12, :, :] - firedat[:-12, :, :])
     
     if res == '24km':
         xmin, xmax= [firedat[:, 1:-1:2, :-3:2].X.values.min(), firedat[:, 1:-1:2, :-3:2].X.values.max()]
         ymin, ymax= [firedat[:, 1:-1:2, :-3:2].Y.values.min(), firedat[:, 1:-1:2, :-3:2].Y.values.max()]
         cellwidth= abs(firedat.X[0].values - firedat.X[2].values)
+        new_firedat= (firedat[0:tot_months, 1:-1:2, :-1:2] - firedat[0:tot_months, 1:-1:2, :-1:2])
     elif res == '12km':
-        xmin, xmax= [firedat[:, :, :-1].X.values.min(), firedat[:, :, :-1].X.values.max()]
-        ymin, ymax= [firedat[:, :, :-1].Y.values.min(), firedat[:, :, :-1].Y.values.max()]
+        xmin, xmax= [firedat[:, :, :].X.values.min(), firedat[:, :, :].X.values.max()]
+        ymin, ymax= [firedat[:, :, :].Y.values.min(), firedat[:, :, :].Y.values.max()]
         cellwidth= abs(firedat.X[0].values - firedat.X[1].values)
+        new_firedat= (firedat[0:tot_months, :, :] - firedat[0:tot_months, :, :])
+    elif res == '1km':
+        xmin, xmax= [firedat[:, :, :].X.values.min(), firedat[:, :, :].X.values.max()]
+        ymin, ymax= [firedat[:, :, :].Y.values.min(), firedat[:, :, :].Y.values.max()]
+        cellwidth= abs(firedat.X[0].values - firedat.X[1].values)
+        new_firedat= (firedat[0:tot_months, :, :] - firedat[0:tot_months, :, :])
     
-    cols= list(np.arange(xmin - cellwidth, xmax + cellwidth, cellwidth))
-    rows= list(np.arange(ymin, ymax + cellwidth, cellwidth))
+    cols= list(np.arange(xmin, xmax + cellwidth, cellwidth))
+    rows= list(np.arange(ymax, ymin - cellwidth, -cellwidth))
     
     polygons = []
     for y in rows:
@@ -712,8 +718,9 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
     firepts= gpd.GeoSeries(firegdf['geometry'].buffer(np.sqrt(firegdf['final_area_ha']*1e4/np.pi))) #currently buffer is a circle with radius = sqrt(A/pi) [in m]
     firepts_gdf= gpd.GeoDataFrame({'geometry': firepts, 'fire_indx': firegdf.index.to_numpy(), \
                                'fire_month': (firegdf['final_month'] - 1) + (firegdf['final_year'] - 1984)*12, \
-                               'fire_size': firegdf['final_area_ha']*1e4, \
-                               'reg_indx': firegdf['reg_indx']})
+                               'fire_size': firegdf['final_area_ha']*1e4, 'reg_indx': firegdf['reg_indx'], \
+                               'L4_indx': firegdf['L4_indx']})
+                               
     
     print("Created a GeoDataFrame of all fires");
     
@@ -722,28 +729,36 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
     merged= merged.drop('index', axis= 1)
     merged= merged[merged['fire_month'] <= (tot_months - 1)]
 
-    coord_arr= np.array(list(itertools.product(np.linspace(len(rows) - 1, 0, len(rows), dtype= int), np.linspace(0, len(cols) - 1, len(cols), dtype= int))))
+    coord_arr= np.array(list(itertools.product(np.linspace(0, len(rows) - 1, len(rows), dtype= int), np.linspace(0, len(cols) - 1, len(cols), dtype= int))))
     areagroups= merged.groupby('fire_indx')
     gridfracarr= np.hstack([((areagroups.get_group(k).area/cellwidth**2)/np.linalg.norm(areagroups.get_group(k).area/cellwidth**2, 1)).to_numpy() \
                                                                                                                  for k in areagroups.groups.keys()])
     rastercoords= [np.insert(coord_arr[merged['grid_indx'].loc[[ind]]], 0, merged['fire_month'].loc[[ind]]) for ind in merged.index]
-
+    
     merged['cell_frac']= gridfracarr
     merged['raster_coords']= rastercoords
-    print("Overlayed the fire points on the raster grid to obtain cell fraction of each fire");
-        
+    merged['grid_x']= [coord_arr[merged['grid_indx'].loc[[ind]]][0][0] for ind in merged.index]
+    merged['grid_y']= [coord_arr[merged['grid_indx'].loc[[ind]]][0][1] for ind in merged.index]
+    
+    print("Overlayed the fire points on the raster grid to obtain cell fraction for each fire");
+    
     if fire_grid == True:
         for m in merged.index.to_numpy():
             rc= merged['raster_coords'].loc[m]
-            new_firedat[dict(time= rc[0], Y = rc[1], X= rc[2])]= (merged['cell_frac'].loc[m] * merged['fire_size'].loc[m])/1e6
-        new_firedat.to_netcdf('../data/burnarea_%s.nc'%res)
-    
+            if np.nan_to_num(new_firedat[dict(time= rc[0], Y = rc[1], X= rc[2])]) == 0:
+                new_firedat[dict(time= rc[0], Y = rc[1], X= rc[2])]= (merged['cell_frac'].loc[m] * merged['fire_size'].loc[m])/1e6
+            else:
+                new_firedat[dict(time= rc[0], Y = rc[1], X= rc[2])]+= (merged['cell_frac'].loc[m] * merged['fire_size'].loc[m])/1e6
+        new_firedat.to_netcdf('../data/burnarea_%s.nc'%res, mode='w')
+
         print("Created a new fire burned area raster grid file!");
-    
+
+        return merged
+
     else:
         pred_flabel_arr= {1: ['Tmax', 'warm'], 2: ['VPD', 'warm'], 3: ['Prec', 'warm'], 4: ['Antprec', 'antecedent'], 5: ['Forest', 'annual'], 6: ['Solar', 'warm'], 7: ['Wind', 'warm'], 8: ['Elev', 'static'], 9: ['Grassland', 'annual'], \
-                          10: ['RH', 'warm'], 11: ['FM1000', 'warm'], 12: ['Tmax', 'moving_average', 'Ant_Tmax'], 13: ['VPD', 'moving_average', 'Ant_VPD'], 14: ['Prec', 'moving_average', 'Avgprec'], 15: ['RH', 'moving_average', 'Ant_RH'],
-                          16: ['CAPE', 'warm'], 17: ['Urban', 'annual'], 18: ['FFWI', 'warm'], 19: ['Tmin', 'warm']}
+                              10: ['RH', 'warm'], 11: ['FM1000', 'warm'], 12: ['Tmax', 'moving_average', 'Ant_Tmax'], 13: ['VPD', 'moving_average', 'Ant_VPD'], 14: ['Prec', 'moving_average', 'Avgprec'], 15: ['RH', 'moving_average', 'Ant_RH'],
+                              16: ['CAPE', 'warm'], 17: ['Urban', 'annual'], 18: ['FFWI', 'warm'], 19: ['Tmin', 'warm']}
         pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Antprec': 4, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, 'Urban': 17, 'FFWI': 18, 'Tmin': 19}
         pred_sindx_arr= {"warm": 1, "antecedent": 2, "annual": 3, "static": 4, "moving_average": 5} 
 
@@ -764,6 +779,8 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
                     clim_var_arr= np.nanmean(sliding_window_view(clim_var_data[:, :-1 , :], (2, 2), axis= (1, 2)), axis= (3, 4))[:, ::2, ::2]
             elif res == '12km':
                 clim_var_arr= clim_var_data
+            elif res == '1km':
+                print("There is no climate functionality for this resolution currently!")
 
             if seas_var == 'static':
                 merged[gdf_var]= [clim_var_arr[tuple(s[1:])] for s in merged['raster_coords']]
@@ -788,7 +805,7 @@ def file_io_func(firefile= None, firedf= None, lflag= 'L4', fflag= 'freq', io_fl
             if fflag == 'size':
                 data_df= init_fire_size_df(firefile= firefile, regindx= r+1, lflag= lflag)
             elif fflag == 'freq':
-                data_df= init_fire_freq_df(firedf= firedf, regindx= r+1, regindx= r+1, lflag= lflag)
+                data_df= init_fire_freq_df(firedf= firedf, regindx= r+1, lflag= lflag)
             data_df.to_hdf(file_dir + 'clim_%s'%regname[r+1] + '_%s'%lflag + '_fire_%s'%fflag + '_data.h5', key= 'df', mode= 'w')
     
     elif io_flag == 'input':
