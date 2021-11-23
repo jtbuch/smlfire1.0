@@ -2,6 +2,7 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from scipy import stats, optimize, interpolate
 import itertools
+import re
 
 import netCDF4 # module that reads in .nc files (built on top of HDF5 format)
 import pandas as pd
@@ -677,13 +678,9 @@ def init_fire_size_df(firefile, regindx, lflag= 'L3', start_year= 1984, final_ye
     
     return reg_df #, reg_fire_ind
 
-        
-def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_year= 2019, fire_grid= False, debug= False): 
+def init_grid(firedat, res, tot_months):
     
-    # function to allocate individual fires from the firelist.txt file to a raster grid of varying resolutions. This serves two roles: 1) allows the predictions of fire probability for individual grid cells;
-    # 2) enables the calculation of a (weighted) average for climate variables for each fire.
-    
-    tot_months= (final_year + 1 - start_year)*12
+    #initializes a raster grid based on Park's climate/fire data
     
     if res == '24km':
         xmin, xmax= [firedat[:, 1:-1:2, :-3:2].X.values.min(), firedat[:, 1:-1:2, :-3:2].X.values.max()]
@@ -713,6 +710,21 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
     grid['grid_indx']= grid.index.to_numpy()
     grid= grid.set_crs('EPSG:5070')
     
+    return grid, rows, cols
+        
+def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_year= 2019, fire_grid= False, debug= False): 
+    
+    # function to allocate individual fires from the firelist.txt file to a raster grid of varying resolutions. This serves two roles: 1) allows the predictions of fire probability for individual grid cells;
+    # 2) enables the calculation of a (weighted) average for climate variables for each fire.
+    
+    tot_months= (final_year + 1 - start_year)*12
+    grid, rows, cols= init_grid(firedat, res, tot_months)
+    cellwidth= int(re.findall(r'\d+', res)[0])*1000
+    if res == '24km':
+        new_firedat= (firedat[0:tot_months, 1:-1:2, :-1:2] - firedat[0:tot_months, 1:-1:2, :-1:2])
+    else:
+        new_firedat= (firedat[0:tot_months, :, :] - firedat[0:tot_months, :, :])
+
     print("Constructed a raster grid with %s grid cell size"%res);
     
     firepts= gpd.GeoSeries(firegdf['geometry'].buffer(np.sqrt(firegdf['final_area_ha']*1e4/np.pi))) #currently buffer is a circle with radius = sqrt(A/pi) [in m]
@@ -813,6 +825,28 @@ def file_io_func(firefile= None, firedf= None, lflag= 'L4', fflag= 'freq', io_fl
         tmpdf= pd.concat(dfs, ignore_index= True)
         tmpdf= tmpdf.dropna().reset_index().drop(columns=['index'])
         tmpdf.to_hdf('../data/clim_%s'%lflag + '_fire_%s'%fflag + '_data.h5', key= 'df', mode= 'w')
+        
+def init_eff_clim_fire_df(firegdf, final_month= 372):
+    
+    # creates a dataframe of 'effective' climate through a weighted average of burned area weighted grid cells
+    
+    firegdf= firegdf[firegdf['fire_month'] < final_month]
+    firegroups= firegdf.groupby('fire_indx')
+    
+    newdf= firegdf.iloc[:, 0:8]
+    newdf= newdf.drop_duplicates(subset=['fire_indx']).reset_index().drop(columns= ['index'])
+    climdf= pd.DataFrame(columns= firegdf.columns[8:])
+    
+    for k in tqdm(firegroups.groups.keys()):
+        climdf= climdf.append(pd.DataFrame(data= np.reshape(np.average(firegroups.get_group(k).iloc[:, 8:], axis= 0, \
+                                    weights= firegroups.get_group(k)['cell_frac']), (1, 19)), \
+                                    columns= firegdf.columns[8:]), ignore_index= True)
+    
+    climdf= climdf.reset_index().drop(columns= ['index'])
+    newdf= newdf.join(climdf)
+    newdf= newdf.drop(columns= ['cell_frac'])
+    
+    return newdf
 
 #archived function for indiviudal climate-fire correlations from Park's .nc file
 
