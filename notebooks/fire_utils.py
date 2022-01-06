@@ -711,8 +711,11 @@ def init_grid(firedat, res, tot_months):
     grid= grid.set_crs('EPSG:5070')
     
     return grid, rows, cols
+
+#def init_clim_pred_grid():
+    
         
-def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_year= 2019, fire_grid= False, debug= False): 
+def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_year= 2019, fire_grid= False): 
     
     # function to allocate individual fires from the firelist.txt file to a raster grid of varying resolutions. This serves two roles: 1) allows the predictions of fire probability for individual grid cells;
     # 2) enables the calculation of a (weighted) average for climate variables for each fire.

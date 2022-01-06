@@ -197,14 +197,22 @@ def lognorm_accuracy(y, parameter_vector):
 
 class SeqBlock(tf.keras.layers.Layer):
     
+<<<<<<< HEAD
     def __init__(self, hidden_l= 2, n_neurs=100, initializer= "glorot_uniform", reg= False, regrate= None, dropout= False):
+=======
+    def __init__(self, hidden_l= 2, n_neurs=100, initializer= "glorot_uniform", reg= False, l2rate= None, dropout= False):
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         super(SeqBlock, self).__init__(name="SeqBlock")
         self.nnmodel= tf.keras.Sequential()
         for l in range(hidden_l):
             if reg:
                 self.nnmodel.add(Dense(n_neurs, activation="relu",
                                     kernel_initializer= initializer,
+<<<<<<< HEAD
                                     kernel_regularizer=tf.keras.regularizers.l2(regrate),
+=======
+                                    kernel_regularizer=tf.keras.regularizers.l2(l2rate),
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
                                     name="h_%d"%(l+1))) 
             else:
                 self.nnmodel.add(Dense(n_neurs, activation="relu",
@@ -219,20 +227,32 @@ class SeqBlock(tf.keras.layers.Layer):
     
 class MDN_size(tf.keras.Model):
 
+<<<<<<< HEAD
     def __init__(self, layers= 2, neurons=10, components = 2, initializer= "glorot_uniform", reg= False, regrate= None, dropout= False):
+=======
+    def __init__(self, layers= 2, neurons=10, components = 2, initializer= "glorot_uniform", reg= False, l2rate= None, dropout= False):
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         super(MDN_size, self).__init__(name="MDN_size")
         self.neurons = neurons
         self.components = components
         self.n_hidden_layers= layers
         
         #hidden layers
+<<<<<<< HEAD
         self.seqblock= SeqBlock(layers, neurons, initializer, reg, regrate, dropout)
+=======
+        self.seqblock= SeqBlock(layers, neurons, initializer, reg, l2rate, dropout)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         
         #output layer
         if reg:
             self.outlayer= Dense(3*components, activation="relu",
                                     kernel_initializer= initializer,
+<<<<<<< HEAD
                                     kernel_regularizer=tf.keras.regularizers.l2(regrate),
+=======
+                                    kernel_regularizer=tf.keras.regularizers.l2(l2rate),
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
                                     name="output_layer")
         else:
             self.outlayer= Dense(3*components, activation="relu",
@@ -247,30 +267,46 @@ class MDN_size(tf.keras.Model):
         
     def call(self, inputs):
         x = self.outlayer(self.seqblock(inputs)) # + self.linreg(inputs)
+<<<<<<< HEAD
         #x0, x1, x2= tf.split(x, 3, axis= 1)
+=======
+        x0, x1, x2= tf.split(x, 3, axis= 1)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         
-        alpha_v = self.alphas(x) 
-        distparam1_v = self.distparam1(x)
-        distparam2_v = self.distparam2(x)
+        alpha_v = self.alphas(x0) 
+        distparam1_v = self.distparam1(x1)
+        distparam2_v = self.distparam2(x2)
         
         return self.pvec([alpha_v, distparam1_v, distparam2_v])
 
 class MDN_freq(tf.keras.Model):
 
+<<<<<<< HEAD
     def __init__(self, layers= 2, neurons=10, components = 1, initializer= "glorot_uniform", reg= False, regrate= None, dropout= False, func_type= 'zinb'):
+=======
+    def __init__(self, layers= 2, neurons=10, components = 1, initializer= "glorot_uniform", reg= False, l2rate= None, dropout= False, func_type= 'zinb'):
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         super(MDN_freq, self).__init__(name="MDN_freq")
         self.neurons = neurons
         self.components = components
         self.n_hidden_layers= layers
         
         #hidden layers
+<<<<<<< HEAD
         self.seqblock= SeqBlock(layers, neurons, initializer, reg, regrate, dropout)
+=======
+        self.seqblock= SeqBlock(layers, neurons, initializer, reg, l2rate, dropout)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         
         #output layer
         if reg:
             self.outlayer= Dense(3*components, activation="relu",
                                     kernel_initializer= initializer,
+<<<<<<< HEAD
                                     kernel_regularizer=tf.keras.regularizers.l2(regrate),
+=======
+                                    kernel_regularizer=tf.keras.regularizers.l2(l2rate),
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
                                     name="output_layer")
         else:
             self.outlayer= Dense(3*components, activation="relu",
@@ -288,15 +324,23 @@ class MDN_freq(tf.keras.Model):
         
     def call(self, inputs):
         x = self.outlayer(self.seqblock(inputs)) #+ self.linreg(inputs)
+<<<<<<< HEAD
         #x0, x1, x2= tf.split(x, 3, axis= 1)
+=======
+        x0, x1, x2= tf.split(x, 3, axis= 1)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         
-        pi_v = self.pi(x) 
-        mu_v = self.mu(x)
-        delta_v = self.delta(x)
+        pi_v = self.pi(x0) 
+        mu_v = self.mu(x1)
+        delta_v = self.delta(x2)
         
         return self.pvec([pi_v, mu_v, delta_v])
 
+<<<<<<< HEAD
 def hyperparam_tuning(n_layers, n_neurons, n_components= None, bs= 128, epochs= 1000, lr= 1e-4, X_dat= None, y_dat= None, fire_tag= 'size', func_flag= 'gpd', samp_weights= False, samp_weight_arr= None):
+=======
+def hyperparam_tuning(n_layers, n_neurons, n_components= None, bs= 128, epochs= 1000, lr= 1e-4, X_dat= None, y_dat= None, fire_tag= 'size', func_flag= 'gpd'):
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
     
     # Function for tuning the hyperparamters of the MDNs to determine fire properties
     
@@ -341,10 +385,14 @@ def hyperparam_tuning(n_layers, n_neurons, n_components= None, bs= 128, epochs= 
             for nn in n_neurons:
                     hp= MDN_freq(layers= n_layers[i], neurons= nn)
                     hp.compile(loss=loss_metric, optimizer=opt, metrics=[acc_metric])
+<<<<<<< HEAD
                     if samp_weights == False:
                         hp.fit(x=X_dat, y=y_dat, batch_size= bs, epochs= epochs, verbose=0)
                     else:
                         hp.fit(x=X_dat, y=y_dat, batch_size= bs, epochs= epochs, sample_weight= samp_weight_arr, verbose=0)
+=======
+                    hp.fit(x=X_dat, y=y_dat, batch_size= bs, epochs= epochs, verbose=0)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
 
                     loss, accuracy= hp.evaluate(X_dat, y_dat, verbose=0)
                     list_of_lists.append([n_layers[i], nn, loss, accuracy])
@@ -357,7 +405,11 @@ def hyperparam_tuning(n_layers, n_neurons, n_components= None, bs= 128, epochs= 
     return hp_df
 
 
+<<<<<<< HEAD
 def validation_cycle(n_layers, n_neurons, n_components= None, num_iterations= 5, bs= 128, epochs= 100, lr= 1e-4, X_dat= None, y_dat= None, X_val_dat= None, y_val_dat= None, fire_tag= 'size', func_flag= 'gpd', samp_weights= False, samp_weight_arr= None):
+=======
+def validation_cycle(n_layers, n_neurons, n_components= None, num_iterations= 5, bs= 128, epochs= 100, lr= 1e-4, X_dat= None, y_dat= None, X_val_dat= None, y_val_dat= None, fire_tag= 'size', func_flag= 'gpd'):
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
 
     # Function for calculating training and validation accuracy over multiple iterations
     
@@ -399,10 +451,14 @@ def validation_cycle(n_layers, n_neurons, n_components= None, num_iterations= 5,
             mdn_val= MDN_freq(layers= n_layers, neurons= n_neurons, initializer= 'he_normal')
         
         mdn_val.compile(loss= loss_metric, optimizer= opt, metrics=[acc_metric])
+<<<<<<< HEAD
         if samp_weights == False:
             mdnhist= mdn_val.fit(x= X_dat, y= y_dat, batch_size= bs, epochs= epochs, validation_data=(X_val_dat, y_val_dat), verbose=0)
         else:
             mdnhist= mdn_val.fit(x= X_dat, y= y_dat, batch_size= bs, epochs= epochs, validation_data=(X_val_dat, y_val_dat), sample_weight= samp_weight_arr, verbose=0)
+=======
+        mdnhist= mdn_val.fit(x= X_dat, y= y_dat, batch_size= bs, epochs= epochs, validation_data=(X_val_dat, y_val_dat), verbose=0)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
         loss_list, acc_list, val_loss_list, val_acc_list= [mdnhist.history[k] for k in mdnhist.history.keys()]
 
         Acc_List.append(acc_list)
@@ -421,6 +477,7 @@ def validation_cycle(n_layers, n_neurons, n_components= None, num_iterations= 5,
     
     return Acc_List, Val_Acc_List, Loss_List, Val_Loss_List, Accuracy_train, Accuracy_val, Loss_train, Loss_val
 
+<<<<<<< HEAD
 def reg_fire_freq_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_dat, n_layers= 2, lr= 1e-4, n_neurons= 16, bs= 32, epochs= 500, func_flag= 'zinb', rseed= None, samp_weights= False, samp_weight_arr= None):
     
     # Calculates the predicted fire frequency as well as its 1 sigma uncertainty for all regions
@@ -428,6 +485,13 @@ def reg_fire_freq_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_da
     if rseed == None:
         rseed= np.random.randint(100)
     tf.random.set_seed(rseed)
+=======
+def reg_fire_freq_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_dat, n_layers= 2, n_neurons= 16, bs= 32, func_flag= 'zinb'):
+    
+    # Calculates the predicted fire frequency as well as its 1 sigma uncertainty for all regions
+    
+    tf.random.set_seed(56)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
 
     if func_flag == 'zinb':
         stat_model= zinb_model
@@ -445,6 +509,7 @@ def reg_fire_freq_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_da
     
     mon= EarlyStopping(monitor='val_loss', min_delta=0, patience=5, verbose=0, mode='auto')
     mdn= MDN_freq(layers= n_layers, neurons= n_neurons)
+<<<<<<< HEAD
     mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= lr), metrics=[acc_func])
     #h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [mon], batch_size= bs, verbose=0)
     if samp_weights == False:
@@ -452,6 +517,10 @@ def reg_fire_freq_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_da
     else:
         h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [mon], batch_size= bs, \
                                                                                                              sample_weight= samp_weight_arr, verbose=0)
+=======
+    mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[acc_func])
+    h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= 500, validation_data=(X_val_dat, y_val_dat), callbacks= [mon], batch_size= bs, verbose=0) #callbacks= [mon]
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
     print("MDN trained for %d epochs"%len(h.history['loss']))
     
     reg_freq_df= pd.DataFrame({'mean_freq': pd.Series(dtype= 'int'), 'low_1sig_freq': pd.Series(dtype= 'int'), 'high_1sig_freq': pd.Series(dtype= 'int'), \
@@ -475,6 +544,7 @@ def reg_fire_freq_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_da
     return reg_freq_df, h
 
 
+<<<<<<< HEAD
 def reg_fire_freq_L4_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_dat, reg_len_arr, lr= 1e-4, n_layers= 2, n_neurons= 16, epochs= 500, bs= 32, func_flag= 'zinb', rseed= None, samp_weights= False, samp_weight_arr= None):
     
     # Calculates the predicted fire frequency as well as its n sigma uncertainty for all regions
@@ -482,6 +552,13 @@ def reg_fire_freq_L4_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test
     if rseed == None:
         rseed= np.random.randint(100)
     tf.random.set_seed(rseed)
+=======
+def reg_fire_freq_L4_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test_dat, reg_len_arr, n_layers= 2, n_neurons= 16, bs= 32, func_flag= 'zinb'):
+    
+    # Calculates the predicted fire frequency as well as its n sigma uncertainty for all regions
+    
+    #tf.random.set_seed(99)
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
 
     if func_flag == 'zinb':
         stat_model= zinb_model
@@ -502,12 +579,17 @@ def reg_fire_freq_L4_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test
     
     mon= EarlyStopping(monitor='val_loss', min_delta=0, patience=5, verbose=0, mode='auto')
     mdn= MDN_freq(layers= n_layers, neurons= n_neurons)
+<<<<<<< HEAD
     mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= lr), metrics=[acc_func])
     if samp_weights == False:
         h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [mon], batch_size= bs, verbose=0)
     else:
         h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), batch_size= bs, \
                                                                                                              sample_weight= samp_weight_arr, verbose=0) #callbacks= [mon]
+=======
+    mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[acc_func])
+    h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= 500, validation_data=(X_val_dat, y_val_dat), callbacks= [mon], batch_size= bs, verbose=0) #callbacks= [mon]
+>>>>>>> 17d6a8e194e84f3c3372867017c8550cb4ff7cc3
     print("MDN trained for %d epochs"%len(h.history['loss']))
     
     reg_freq_df= pd.DataFrame({'mean_freq': pd.Series(dtype= 'int'), 'low_1sig_freq': pd.Series(dtype= 'int'), 'high_1sig_freq': pd.Series(dtype= 'int'), \
