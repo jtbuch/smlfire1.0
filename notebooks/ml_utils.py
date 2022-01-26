@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import date, datetime, timedelta
 from cftime import num2date, date2num, DatetimeGregorian
 from tqdm import tqdm
+from copy import deepcopy
 
 #Import and write files
 import csv
@@ -62,6 +63,8 @@ tfd= tfp.distributions
 from tensorflow.keras.layers import Input, Dense, Activation, Concatenate
 from tensorflow.keras.callbacks import EarlyStopping, TensorBoard, ReduceLROnPlateau
 from tensorflow.keras import regularizers
+
+## ----------------------------------------------------------------- MDN functions ----------------------------------------------------------------------------
 
 def zinb_model(parameter_vector):
     
@@ -421,13 +424,15 @@ def validation_cycle(n_layers, n_neurons, n_components= None, num_iterations= 5,
     
     return Acc_List, Val_Acc_List, Loss_List, Val_Loss_List, Accuracy_train, Accuracy_val, Loss_train, Loss_val
 
-def fire_freq_data(fire_freq_df, dropcols= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist']): #'Road_dist'
+## ----------------------------------------------------------------- Fire freq functions ----------------------------------------------------------------------------
+
+def fire_freq_data(fire_freq_df, dropcols= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist']): 
     
     # Returns the train/val/test data given an initial fire frequency df
     
     fire_freq_train= fire_freq_df[fire_freq_df.month < 372].reset_index().drop(columns=['index']) # for Training and Testing; 372 ==> Jan. 2015; ensures ~80/20 split
     fire_freq_test= fire_freq_df[fire_freq_df.month >= 372].reset_index().drop(columns=['index']) # for Prediction
-    tmp_freq_df= fire_freq_df[fire_freq_df.iloc[:, 0:22].columns] #20 --> if dropping VPD/RH and their antecdent version
+    tmp_freq_df= fire_freq_df[fire_freq_df.iloc[:, 0:22].columns] #CAUTION: number changes when adding new variables
     X_freq_df= pd.DataFrame({})
     scaler= StandardScaler().fit(fire_freq_train.iloc[:, 0:22])
     X_freq_df[tmp_freq_df.columns]= scaler.transform(tmp_freq_df)
@@ -444,7 +449,7 @@ def fire_freq_data(fire_freq_df, dropcols= ['index', 'Tmin', 'Solar', 'Ant_Tmax'
     
     return X_freqs_train, X_freqs_val, y_freqs_train, y_freqs_val, fire_freq_test, X_freqs_test, y_freqs_test, freq_samp_weight_arr
 
-def freq_pred_func(mdn_model, X_test_dat, func_flag= 'zinb', l4_flag= False, reg_len_arr= None, modsave= False):
+def freq_pred_func(mdn_model, X_test_dat, func_flag= 'zinb', l4_flag= False, reg_len_arr= None, modsave= False, nsig= 2):
     
     # Calculates the mean and 2 sigma uncertainties of fire frequencies given a NN model
     
@@ -459,27 +464,25 @@ def freq_pred_func(mdn_model, X_test_dat, func_flag= 'zinb', l4_flag= False, reg
         freq_arr_1= np.linspace(0, len(X_test_dat) - freq_test_size, n_regions, dtype= int)
         freq_arr_2= freq_arr_1 + freq_test_size
         
-        reg_freq_df= pd.DataFrame({'mean_freq': pd.Series(dtype= 'int'), 'low_2sig_freq': pd.Series(dtype= 'int'), 'high_2sig_freq': pd.Series(dtype= 'int'), \
-                                                                                       'reg_indx': pd.Series(dtype= 'int')})
+        reg_freq_df= pd.DataFrame({'mean_freq': pd.Series(dtype= 'int'), 'low_%dsig_freq'%nsig: pd.Series(dtype= 'int'), 'high_%dsig_freq'%nsig: pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
         if not modsave:
             for i in tqdm(range(n_regions)): 
                 param_vec= mdn_model.predict(x= tf.constant(X_test_dat[freq_arr_1[i]:freq_arr_2[i]]))
-                freq_samp= stat_model(param_vec).sample(10000)
+                freq_samp= stat_model(param_vec).sample(10000, seed= 99)
                 reg_freq= tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)
                 reg_freq_sig= tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64)
                 #reg_freq_med= tfp.stats.percentile(sierra_freq_samp, 50.0, interpolation='midpoint', axis= 0)
 
-                reg_freq_low= (reg_freq - 2*reg_freq_sig).numpy()
+                reg_freq_low= (reg_freq - nsig*reg_freq_sig).numpy()
                 reg_freq_low[reg_freq_low < 0]= 0
-                reg_freq_high= (reg_freq + 2*reg_freq_sig).numpy()
+                reg_freq_high= (reg_freq + nsig*reg_freq_sig).numpy()
                 reg_indx_arr= (i+1)*np.ones(len(reg_freq), dtype= int)
 
-                reg_freq_df= reg_freq_df.append(pd.DataFrame({'mean_freq': reg_freq.numpy(), 'low_2sig_freq': reg_freq_low, 'high_2sig_freq': reg_freq_high, \
-                                                                                           'reg_indx': reg_indx_arr}), ignore_index=True)
+                reg_freq_df= reg_freq_df.append(pd.DataFrame({'mean_freq': reg_freq.numpy(), 'low_%dsig_freq'%nsig: reg_freq_low, 'high_%dsig_freq'%nsig: reg_freq_high,'reg_indx': reg_indx_arr}), ignore_index=True)
         else:
             for i in range(n_regions): 
                 param_vec= mdn_model.predict(x= tf.constant(X_test_dat[freq_arr_1[i]:freq_arr_2[i]]))
-                freq_samp= stat_model(param_vec).sample(10000)
+                freq_samp= stat_model(param_vec).sample(10000, seed= 99)
                 reg_freq= tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)
                 reg_freq_sig= tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64)
                 #reg_freq_med= tfp.stats.percentile(sierra_freq_samp, 50.0, interpolation='midpoint', axis= 0)
@@ -489,8 +492,7 @@ def freq_pred_func(mdn_model, X_test_dat, func_flag= 'zinb', l4_flag= False, reg
                 reg_freq_high= (reg_freq + 2*reg_freq_sig).numpy()
                 reg_indx_arr= (i+1)*np.ones(len(reg_freq), dtype= int)
 
-                reg_freq_df= reg_freq_df.append(pd.DataFrame({'mean_freq': reg_freq.numpy(), 'low_2sig_freq': reg_freq_low, 'high_2sig_freq': reg_freq_high, \
-                                                                                           'reg_indx': reg_indx_arr}), ignore_index=True) 
+                reg_freq_df= reg_freq_df.append(pd.DataFrame({'mean_freq': reg_freq.numpy(), 'low_%dsig_freq'%nsig: reg_freq_low, 'high_%dsig_freq'%nsig: reg_freq_high,'reg_indx': reg_indx_arr}), ignore_index=True) 
         
     else:
         cumlenarr= np.insert(np.cumsum(reg_len_arr), 0, 0)
@@ -498,7 +500,7 @@ def freq_pred_func(mdn_model, X_test_dat, func_flag= 'zinb', l4_flag= False, reg
         if not modsave:
             for i in tqdm(range(n_regions)): 
                 param_vec= mdn_model.predict(x= tf.constant(X_test_dat[cumlenarr[i]:cumlenarr[i+1]]))
-                freq_samp= stat_model(param_vec).sample(10000)
+                freq_samp= stat_model(param_vec).sample(10000, seed= 99)
                 reg_freq= tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)
                 reg_freq_sig= tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64)
 
@@ -509,7 +511,7 @@ def freq_pred_func(mdn_model, X_test_dat, func_flag= 'zinb', l4_flag= False, reg
         else:
             for i in range(n_regions): #n_regions
                 param_vec= mdn_model.predict(x= tf.constant(X_test_dat[cumlenarr[i]:cumlenarr[i+1]]))
-                freq_samp= stat_model(param_vec).sample(10000)
+                freq_samp= stat_model(param_vec).sample(10000, seed= 99)
                 reg_freq= tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)
                 reg_freq_sig= tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64)
                 #reg_freq_med= tfp.stats.percentile(sierra_freq_samp, 50.0, interpolation='midpoint', axis= 0)
@@ -600,22 +602,41 @@ def reg_fire_freq_L4_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, X_test
         reg_freq_df= freq_pred_func(mdn_model= mdn, X_test_dat= X_test_dat, func_flag= func_flag, l4_flag= True, reg_len_arr= reg_len_arr, modsave= True)
         return reg_freq_df, h, mdn
     
-def freq_acc_func(mdn_model, obs_input, obs_freqs, func_flag= 'zinb'):
+def freq_acc_func(pvec, obs_freqs, func_flag= 'zinb'):
     
     if func_flag == 'zinb':
-        acc_func= zinb_accuracy
+        stat_model= zinb_model
     elif func_flag == 'zipd':
-        acc_func= zipd_accuracy
+        stat_model= zipd_model
+        
+    pmf_pred= stat_model(pvec).prob(obs_freqs)
+    obspmf= tfd.Empirical(obs_freqs)
+    pmf_obs= obspmf.cdf(obs_freqs)
+    
+    acc= 100 - 100*stats.entropy(pmf_obs, qk= pmf_pred)  #converting convex KL divergence to concave equivalent 
+    
+    return acc  
+
+def freq_crps_func(mdn_model, obs_input, obs_freqs, func_flag= 'zinb'):
+    
+    if func_flag == 'zinb':
+        stat_model= zinb_model
+    elif func_flag == 'zipd':
+        stat_model= zipd_model
+    
     param_vec= mdn_model.predict(x= tf.constant(obs_input))
+    X_1= stat_model(param_vec).sample(10000)
+    X_2= stat_model(param_vec).sample(10000)
+
+    crps= 0.5*tf.reduce_mean(tf.abs(X_1 - X_2), axis= 0) - tf.reduce_mean(tf.abs(X_1 - obs_freqs), axis= 0)
+    return (100 - 100*tf.abs(crps)).numpy()
     
-    return acc_func(obs_freqs, param_vec).numpy()
-    
-def fire_freq_predict(fire_L3_freq_df, fire_L4_freq_df, n_iters= 5, n_epochs= 10, bs= 32):
+def fire_freq_predict(fire_L3_freq_df, fire_L4_freq_df, dropcols= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist'], n_iters= 5, n_epochs= 10, bs= 32):
     
     # Evaluates the chisq and Pearson's correlation for observed and predicted fire frequencies for a variety of hyperparameters
     
-    X_L3_freqs_train, X_L3_freqs_val, y_L3_freqs_train, y_L3_freqs_val, fire_L3_freq_test, X_L3_freqs_test, y_L3_freqs_test, L3_freq_samp_weight_arr= fire_freq_data(fire_L3_freq_df)
-    X_L4_freqs_train, X_L4_freqs_val, y_L4_freqs_train, y_L4_freqs_val, fire_L4_freq_test, X_L4_freqs_test, y_L4_freqs_test, L4_freq_samp_weight_arr= fire_freq_data(fire_L4_freq_df)
+    X_L3_freqs_train, X_L3_freqs_val, y_L3_freqs_train, y_L3_freqs_val, fire_L3_freq_test, X_L3_freqs_test, y_L3_freqs_test, L3_freq_samp_weight_arr= fire_freq_data(fire_L3_freq_df, dropcols= dropcols)
+    X_L4_freqs_train, X_L4_freqs_val, y_L4_freqs_train, y_L4_freqs_val, fire_L4_freq_test, X_L4_freqs_test, y_L4_freqs_test, L4_freq_samp_weight_arr= fire_freq_data(fire_L4_freq_df, dropcols= dropcols)
     
     n_regions= 18
     tot_months= 60
@@ -667,31 +688,45 @@ def fire_freq_predict(fire_L3_freq_df, fire_L4_freq_df, n_iters= 5, n_epochs= 10
                         obs_input= X_L3_freqs_test[freq_arr_1[regindx]:freq_arr_2[regindx]]
                         if f == 'zinb':
                             reg_L3_freq_groups= reg_L3_freq_zinb_groups
-                            accuracy= freq_acc_func(mdn_model= mdn_L3_freq_zinb, obs_input= obs_input, obs_freqs= obs_freqs, func_flag= 'zinb')
+                            param_vec= mdn_L3_freq_zinb.predict(x= tf.constant(obs_input))
+                            emp_accuracy= freq_acc_func(pvec= param_vec, obs_freqs= obs_freqs, func_flag= 'zinb')
+                            mod_accuracy= zinb_accuracy(obs_freqs, param_vec)
+                            mod_loss= zinb_loss(obs_freqs, param_vec)
                         else:
                             reg_L3_freq_groups= reg_L3_freq_zipd_groups
-                            accuracy= freq_acc_func(mdn_model= mdn_L3_freq_zipd, obs_input= obs_input, obs_freqs= obs_freqs, func_flag= 'zipd')
+                            param_vec= mdn_L3_freq_zipd.predict(x= tf.constant(obs_input))
+                            emp_accuracy= freq_acc_func(pvec= param_vec, obs_freqs= obs_freqs, func_flag= 'zipd')
+                            mod_accuracy= zipd_accuracy(obs_freqs, param_vec)
+                            mod_loss= zipd_loss(obs_freqs, param_vec)
 
                         mean_freqs= reg_L3_freq_groups.get_group(regindx + 1)['mean_freq']
                         high_freqs= reg_L3_freq_groups.get_group(regindx + 1)['high_2sig_freq']
                         low_freqs= reg_L3_freq_groups.get_group(regindx + 1)['low_2sig_freq']
 
                         pearson_r= stats.pearsonr(obs_freqs, mean_freqs)
-                        errarr= 16*(mean_freqs - obs_freqs)**2/(high_freqs - low_freqs)**2
-                        chisq= np.sum(errarr[np.isfinite(errarr)])
-                        #dof= len(errarr[np.isfinite(errarr)]) #+ mdn.count_params() - 1
+                        errarr_1= 16*(mean_freqs - obs_freqs)**2/(high_freqs - low_freqs)**2
+                        errarr_2= 4*abs(mean_freqs - obs_freqs)/(high_freqs - low_freqs)
+                        chisq_1= np.sum(errarr_1[np.isfinite(errarr_1)])
+                        chisq_2= np.sum(errarr_2[np.isfinite(errarr_2)])
+                        dof= len(errarr_1[np.isfinite(errarr_1)]) #+ mdn.count_params() - 1
                         
-                        list_of_lists.append([it + 1, regindx + 1, l, f, pearson_r[0], chisq, accuracy])
+                        list_of_lists.append([it + 1, regindx + 1, l, f, pearson_r[0], chisq_1/dof, chisq_2/dof, emp_accuracy, mod_accuracy.numpy(), mod_loss.numpy()])
 
                     elif l == 'L4':
                         l4_freqs= y_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]]
                         obs_input= X_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]]
                         if f == 'zinb':
                             reg_L4_freq_groups= reg_L4_freq_zinb_groups
-                            accuracy= freq_acc_func(mdn_model= mdn_L4_freq_zinb, obs_input= obs_input, obs_freqs= l4_freqs, func_flag= 'zinb')
+                            param_vec= mdn_L4_freq_zinb.predict(x= tf.constant(obs_input))
+                            emp_accuracy= freq_acc_func(pvec= param_vec, obs_freqs= l4_freqs, func_flag= 'zinb')
+                            mod_accuracy= zinb_accuracy(l4_freqs, param_vec)
+                            mod_loss= zinb_loss(l4_freqs, param_vec)
                         else:
                             reg_L4_freq_groups= reg_L4_freq_zipd_groups
-                            accuracy= freq_acc_func(mdn_model= mdn_L4_freq_zipd, obs_input= obs_input, obs_freqs= l4_freqs, func_flag= 'zipd')
+                            param_vec= mdn_L4_freq_zipd.predict(x= tf.constant(obs_input))
+                            emp_accuracy= freq_acc_func(pvec= param_vec, obs_freqs= l4_freqs, func_flag= 'zipd')
+                            mod_accuracy= zipd_accuracy(l4_freqs, param_vec)
+                            mod_loss= zipd_loss(l4_freqs, param_vec)
 
                         obs_freqs= np.asarray([np.sum(y_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]][np.arange(m, reglenarr[regindx], tot_months)]) \
                                                                                             for m in range(tot_months)])
@@ -705,11 +740,346 @@ def fire_freq_predict(fire_L3_freq_df, fire_L4_freq_df, n_iters= 5, n_epochs= 10
                         low_freqs[low_freqs < 0]= 0
 
                         pearson_r= stats.pearsonr(obs_freqs, mean_freqs)
-                        errarr= 16*(mean_freqs - obs_freqs)**2/(high_freqs - low_freqs)**2
-                        chisq= np.sum(errarr[np.isfinite(errarr)])
-                        #dof= len(errarr[np.isfinite(errarr)]) #+ mdn.count_params() - 1 #might be misleading due to high number of NaNs
+                        errarr_1= 16*(mean_freqs - obs_freqs)**2/(high_freqs - low_freqs)**2
+                        errarr_2= 4*abs(mean_freqs - obs_freqs)/(high_freqs - low_freqs)
+                        chisq_1= np.sum(errarr_1[np.isfinite(errarr_1)])
+                        chisq_2= np.sum(errarr_2[np.isfinite(errarr_2)])
+                        dof= len(errarr_1[np.isfinite(errarr_1)]) #+ mdn.count_params() - 1 #might be misleading due to high number of NaNs
 
-                        list_of_lists.append([it + 1, regindx + 1, l, f, pearson_r[0], chisq, accuracy])
+                        list_of_lists.append([it + 1, regindx + 1, l, f, pearson_r[0], chisq_1/dof, chisq_2/dof, emp_accuracy, mod_accuracy.numpy(), mod_loss.numpy()])
 
-    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "reg_indx", "reg_flag", "func_flag", "Pearson_r", "Red_ChiSq", "Accuracy"])
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "reg_indx", "reg_flag", "func_flag", "Pearson_r", "Red_ChiSq_1", "Red_ChiSq_2", "Emp_Accuracy", "Mod_Accuracy", "Loss"])
     return hp_df
+
+def load_ml_freq(fire_L4_freq_df, fire_L3_freq_df, dropcols= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist'], run_id= None): 
+    
+    # Loads the frequency distribution from prior saved 'best fit' runs
+    
+    n_regions= 18
+    tot_months= 60
+    
+    X_L3_freqs_train, X_L3_freqs_val, y_L3_freqs_train, y_L3_freqs_val, fire_L3_freq_test, X_L3_freqs_test, y_L3_freqs_test, \
+        L3_freq_samp_weight_arr= fire_freq_data(fire_L3_freq_df, dropcols= dropcols)
+    X_L4_freqs_train, X_L4_freqs_val, y_L4_freqs_train, y_L4_freqs_val, fire_L4_freq_test, X_L4_freqs_test, y_L4_freqs_test, \
+        L4_freq_samp_weight_arr= fire_freq_data(fire_L4_freq_df, dropcols= dropcols)
+
+    freqtestgrps= fire_L4_freq_test.groupby('reg_indx')
+    reglenarr= np.asarray([len(freqtestgrps.get_group(k)) for k in freqtestgrps.groups.keys()])
+    cumreglen= np.insert(np.cumsum(reglenarr), 0, 0)
+
+    freq_test_size= np.int64(len(y_L3_freqs_test)/n_regions)
+    freq_arr_1= np.linspace(0, len(y_L3_freqs_test) - freq_test_size, n_regions, dtype= int)
+    freq_arr_2= freq_arr_1 + freq_test_size
+    
+    print("Loading ML frequency data from ../sav_files/iter_runs_%s"%run_id)
+    hp_df= pd.read_hdf('../sav_files/iter_runs_%s'%run_id + '/hyperparams_iter_runs_%s.h5'%run_id)
+    hp_df= hp_df[hp_df.Pearson_r >= 0.2]
+    hp_df['tot_metric']= hp_df['Emp_Accuracy']/hp_df['Red_ChiSq']
+    opt_freq_ind= np.asarray([hp_df.groupby('reg_indx').get_group(i+1).dropna().sort_values(by= ['tot_metric'], ascending= False).iloc[[0]].index for i in range(n_regions)]).flatten()
+
+    regmodels= []
+    reg_freq_df= pd.DataFrame({'mean_freq': pd.Series(dtype= 'int'), 'low_1sig_freq': pd.Series(dtype= 'int'), 'high_1sig_freq': pd.Series(dtype= 'int'), \
+                                                                                                                        'reg_indx': pd.Series(dtype= 'int')})
+    for regindx in tqdm(range(n_regions)):
+
+        mod_params= hp_df.loc[opt_freq_ind[regindx]].to_dict()
+        if mod_params['reg_flag'] == 'L4':
+            if mod_params['func_flag'] == 'zipd':
+                mdn_L4_zipd= tf.keras.models.load_model('../sav_files/iter_runs_%s'%run_id + '/mdn_L4_zipd_iter_%d'%(mod_params['Iteration']), \
+                                                                                        custom_objects= {'zipd_loss': zipd_loss, 'zipd_accuracy': zipd_accuracy})
+                reg_L4_freq_df= freq_pred_func(mdn_model= mdn_L4_zipd, X_test_dat= X_L4_freqs_test, func_flag= 'zipd', l4_flag= True, reg_len_arr= reglenarr, modsave= True)
+                regmodels.append(zipd_model(mdn_L4_zipd.predict(x= tf.constant(X_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]]))))
+            else:
+                mdn_L4_zinb= tf.keras.models.load_model('../sav_files/iter_runs_%s'%run_id + '/mdn_L4_zinb_iter_%d'%(mod_params['Iteration']), \
+                                                                                        custom_objects= {'zinb_loss': zinb_loss, 'zinb_accuracy': zinb_accuracy})
+                reg_L4_freq_df= freq_pred_func(mdn_model= mdn_L4_zinb, X_test_dat= X_L4_freqs_test, func_flag= 'zipd', l4_flag= True, reg_len_arr= reglenarr, modsave= True)
+                regmodels.append(zinb_model(mdn_L4_zinb.predict(x= tf.constant(X_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]]))))
+
+            reg_L4_freq_groups= reg_L4_freq_df.groupby('reg_indx')
+            fire_l3_mean_freqs= np.asarray([np.sum(reg_L4_freq_groups.get_group(regindx + 1)['mean_freq'].iloc[np.arange(m, reglenarr[regindx], tot_months)]) \
+                                                                                                for m in range(tot_months)])
+            fire_l3_high_freqs= fire_l3_mean_freqs + np.sqrt([np.sum(reg_L4_freq_groups.get_group(regindx + 1)['std_freq'].iloc[np.arange(m, reglenarr[regindx], tot_months)]**2) \
+                                        for m in range(tot_months)])
+            fire_l3_low_freqs= fire_l3_mean_freqs - np.sqrt([np.sum(reg_L4_freq_groups.get_group(regindx + 1)['std_freq'].iloc[np.arange(m, reglenarr[regindx], tot_months)]**2) \
+                                        for m in range(tot_months)])
+            fire_l3_low_freqs[fire_l3_low_freqs < 0]= 0
+
+            reg_indx_arr= (regindx + 1)*np.ones(len(fire_l3_mean_freqs), dtype= int)
+            reg_freq_df= reg_freq_df.append(pd.DataFrame({'mean_freq': fire_l3_mean_freqs.astype(int), 'low_1sig_freq': np.rint(fire_l3_low_freqs).astype(int), \
+                                                          'high_1sig_freq': np.rint(fire_l3_high_freqs).astype(int), 'reg_indx': reg_indx_arr}), ignore_index=True)
+        else:
+            if mod_params['func_flag'] == 'zipd':
+                mdn_L3_zipd= tf.keras.models.load_model('../sav_files/iter_runs_%s'%run_id + '/mdn_L3_zipd_iter_%d'%(mod_params['Iteration']), \
+                                                            custom_objects= {'zipd_loss': zipd_loss, 'zipd_accuracy': zipd_accuracy})
+                reg_L3_freq_df= freq_pred_func(mdn_model= mdn_L3_zipd, X_test_dat= X_L3_freqs_test, func_flag= 'zipd', l4_flag= False, modsave= True, nsig= 1)
+                regmodels.append(zipd_model(mdn_L3_zipd.predict(x= tf.constant(X_L3_freqs_test[freq_arr_1[regindx]:freq_arr_2[regindx]]))))
+            else:
+                mdn_L3_zinb= tf.keras.models.load_model('../sav_files/iter_runs_%s'%run_id + '/mdn_L3_zinb_iter_%d'%(mod_params['Iteration']), \
+                                                            custom_objects= {'zinb_loss': zinb_loss, 'zinb_accuracy': zinb_accuracy})
+                reg_L3_freq_df= freq_pred_func(mdn_model= mdn_L3_zinb, X_test_dat= X_L3_freqs_test, func_flag= 'zinb', l4_flag= False, modsave= True, nsig= 1)
+                regmodels.append(zinb_model(mdn_L3_zinb.predict(x= tf.constant(X_L3_freqs_test[freq_arr_1[regindx]:freq_arr_2[regindx]]))))
+
+            reg_L3_freq_groups= reg_L3_freq_df.groupby('reg_indx')
+            reg_freq_df= pd.concat([reg_freq_df, reg_L3_freq_groups.get_group(regindx + 1)], ignore_index= True)
+        
+    return reg_freq_df
+
+def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, bs= 32, run_id= None):
+    
+    # Evaluates the chisq and Pearson's correlation for observed and predicted fire frequencies for calcualting the variable importance using a LOCO approach
+    
+    n_regions= 18
+    tot_months= 60
+    locoarr= ['VPD', 'Tmax', 'Prec', 'Forest', 'FM1000', 'Ant_VPD', 'Avgprec', 'Urban', 'CAPE']
+    list_of_lists= []
+    
+    for it in tqdm(range(n_iters)):
+        rseed= np.random.randint(100)
+        for var in range(len(locoarr) + 1):
+            if var == 0: # 0 corresponds to all variables
+                dropvarlist= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist']
+            else:
+                print("Loading predictor variable data without %s"%locoarr[var - 1])
+                dropvarlist= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist', locoarr[var - 1]]
+
+            X_L4_freqs_train, X_L4_freqs_val, y_L4_freqs_train, y_L4_freqs_val, fire_L4_freq_test, X_L4_freqs_test, y_L4_freqs_test, \
+            L4_freq_samp_weight_arr= fire_freq_data(fire_L4_freq_df, dropcols= dropvarlist)
+            freqtestgrps= fire_L4_freq_test.groupby('reg_indx')
+            reglenarr= np.asarray([len(freqtestgrps.get_group(k)) for k in freqtestgrps.groups.keys()])
+            cumreglen= np.insert(np.cumsum(reglenarr), 0, 0)
+
+            reg_L4_freq_zipd_df, _ , mdn_L4_freq_zipd= reg_fire_freq_L4_func(X_train_dat= X_L4_freqs_train, y_train_dat= y_L4_freqs_train, X_val_dat= X_L4_freqs_val, \
+                                        y_val_dat= y_L4_freqs_val, X_test_dat= X_L4_freqs_test, reg_len_arr= reglenarr, epochs= n_epochs, bs= bs, 
+                                        func_flag= 'zipd', rseed= rseed, samp_weights= True, samp_weight_arr= L4_freq_samp_weight_arr, modsave= True)
+            mdn_L4_freq_zipd.save('../sav_files/loco_runs_%s'%run_id + '/mdn_L4_zipd_iter_run_%d'%(it+1) + '_var_%d'%(var))
+            reg_L4_freq_zipd_groups= reg_L4_freq_zipd_df.groupby('reg_indx')
+
+            for regindx in range(n_regions):
+                l4_freqs= y_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]]
+                obs_input= X_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]]
+                reg_L4_freq_groups= reg_L4_freq_zipd_groups
+                param_vec= mdn_L4_freq_zipd.predict(x= tf.constant(obs_input))
+                emp_accuracy= freq_acc_func(pvec= param_vec, obs_freqs= l4_freqs, func_flag= 'zipd')
+                mod_accuracy= zipd_accuracy(l4_freqs, param_vec)
+                mod_loss= zipd_loss(l4_freqs, param_vec)            
+
+                obs_freqs= np.asarray([np.sum(y_L4_freqs_test[cumreglen[regindx]:cumreglen[regindx + 1]][np.arange(m, reglenarr[regindx], tot_months)]) \
+                                                                                                for m in range(tot_months)])
+
+                mean_freqs= np.asarray([np.sum(reg_L4_freq_groups.get_group(regindx + 1)['mean_freq'].iloc[np.arange(m, reglenarr[regindx], tot_months)]) \
+                                                                                                                for m in range(tot_months)])
+                high_freqs= mean_freqs + np.sqrt([np.sum(reg_L4_freq_groups.get_group(regindx + 1)['std_freq'].iloc[np.arange(m, reglenarr[regindx], tot_months)]**2) \
+                                                        for m in range(tot_months)])
+                low_freqs= mean_freqs - np.sqrt([np.sum(reg_L4_freq_groups.get_group(regindx + 1)['std_freq'].iloc[np.arange(m, reglenarr[regindx], tot_months)]**2) \
+                                                        for m in range(tot_months)])
+                low_freqs[low_freqs < 0]= 0
+
+                pearson_r= stats.pearsonr(obs_freqs, mean_freqs)
+                errarr_1= 4*(mean_freqs - obs_freqs)**2/(high_freqs - low_freqs)**2
+                chisq_1= np.sum(errarr_1[np.isfinite(errarr_1)])
+                dof= len(errarr_1[np.isfinite(errarr_1)]) #+ mdn.count_params() - 1 #might be misleading due to high number of NaNs
+
+                list_of_lists.append([it + 1, var, regindx + 1, pearson_r[0], chisq_1/dof, emp_accuracy, mod_accuracy.numpy(), mod_loss.numpy()])
+
+    var_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Variable", "reg_indx", "Pearson_r", "Red_ChiSq_1", "Emp_Accuracy", "Mod_Accuracy", "Loss"])
+    return var_df
+
+## ----------------------------------------------------------------- Fire size functions ----------------------------------------------------------------------------
+
+def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH']):
+    
+    # Returns the train/val/test data for fire sizes given a grid resolution
+    
+    data_dir= '../data/'
+    fire_size_train= pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
+    fire_size_test= pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
+    
+    fire_size_df= pd.concat([fire_size_train, fire_size_test], axis= 0)
+    tmp_size_df= fire_size_df[fire_size_df.iloc[:, 7:].columns]
+    X_size_df= pd.DataFrame({})
+    scaler=  StandardScaler().fit(fire_size_train.iloc[:, 7:])
+    X_size_df[tmp_size_df.columns]= scaler.transform(tmp_size_df) 
+
+    X_size_train_df= X_size_df.iloc[0:len(fire_size_train)].drop(columns= dropcols) 
+    y_size_train= np.array(fire_size_train.fire_size/1e6, dtype=np.float32) #1e6 converts from m^2 to km^2
+
+    X_sizes_test= X_size_df.iloc[-len(fire_size_test):].drop(columns= dropcols) 
+    y_sizes_test= np.array(fire_size_test.fire_size/1e6, dtype=np.float32)
+
+    #splitting only the training data set
+    X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val = train_test_split(X_size_train_df, y_size_train, test_size=0.2, random_state=99)
+    
+    return X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test
+
+
+def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr, sum_size_arr, ncomps= 2, freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
+                                                                                                    debug= False, regindx= None, seed= None):
+    
+    # Given a NN model, the function returns the monthly burned area time series for all L3 regions
+    
+    tf.random.set_seed(seed)
+    #X_test_dat= np.array(X_test_dat, dtype= np.float32)
+    
+    if debug:
+        n_regions= 1 #18
+    else:
+        n_regions= 18
+    tot_months= 60
+    reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'low_1sig_size': pd.Series(dtype= 'int'), 'high_1sig_size': pd.Series(dtype= 'int'), \
+                                                                                           'reg_indx': pd.Series(dtype= 'int')})
+
+    for i in tqdm(range(n_regions)): 
+        if debug:
+            size_ind_df= size_test_df.reset_index()[['fire_size', 'fire_month', 'reg_indx']]
+            reg_ind_df= size_ind_df.groupby('reg_indx').get_group(regindx).groupby('fire_month')
+        else:
+            size_ind_df= size_test_df.reset_index()[['fire_size', 'fire_month', 'reg_indx']]
+            reg_ind_df= size_ind_df.groupby('reg_indx').get_group(i+1).groupby('fire_month')
+
+        mean_burnarea_tot= np.zeros(tot_months)
+        high_1sig_burnarea_tot= np.zeros(tot_months)
+        low_1sig_burnarea_tot= np.zeros(tot_months)
+        if debug:
+            fire_ind_grid= []
+            ml_param_grid= []
+
+        for m in range(tot_months):
+            mindx= m + 372
+            samp_arr= tf.zeros([10000, 0])
+            if freq_flag == 'ml':
+                if debug:
+                    reg_freqs= regmlfreq.groupby('reg_indx').get_group(regindx)  #replace with model instead of df and try with one region first
+                else:
+                    reg_freqs= regmlfreq.groupby('reg_indx').get_group(i+1)
+                mean_freqs= reg_freqs['mean_freq'].iloc[[m]].to_numpy()[0] #iloc maintains month index for every region
+                high_freqs= reg_freqs['high_1sig_freq'].iloc[[m]].to_numpy()[0]
+                low_freqs= reg_freqs['low_1sig_freq'].iloc[[m]].to_numpy()[0]
+            elif freq_flag == 'data':
+                freq_size= np.int64(len(freqs_data)/18)
+                tmparr_1= np.linspace(0, len(freqs_data) - freq_size, 18, dtype= np.int64)
+                #tmparr_2= tmparr_1 + freq_size
+                if debug:
+                    freqs= freqs_data.astype(np.int64)[tmparr_1[regindx - 1] + m]
+                else:
+                    freqs= freqs_data.astype(np.int64)[tmparr_1[i] + m]
+            
+            # for sampling from frequency distribution, create additional function from here
+            if mean_freqs == 0: #if mean freqs from distribution is zero, then set burned area to be zero
+                mean_burnarea_tot[m]= 0
+                high_1sig_burnarea_tot[m]= 0
+                low_1sig_burnarea_tot[m]= 0
+                if debug:
+                    fire_ind_grid.append(np.array([0]))
+                    ml_param_grid.append(np.zeros(ncomps))
+
+            else:
+                try:
+                    fire_ind_arr= reg_ind_df.get_group(mindx).index.to_numpy() #replace with random draws of grid points from a RF learned 'fire potential' map
+                    #print(m, mean_freqs, high_freqs, fire_ind_arr)
+                    freqsarr= [mean_freqs, high_freqs, low_freqs] #low freqs are usually 0, so find a fix for that
+                    for freqs in freqsarr:
+                        if freqs > 0:
+                            if freqs <= len(fire_ind_arr):
+                                fire_ind_arr= np.random.choice(fire_ind_arr, freqs, replace= False)
+                            else:
+                                fire_ind_arr= np.append(fire_ind_arr, np.random.choice(fire_ind_arr, freqs - len(fire_ind_arr), replace= True)) #False might imply we run out of fires
+
+                            ml_param_vec= mdn_model.predict(x= np.array(X_test_dat.iloc[fire_ind_arr], dtype= np.float32)) #note: different indexing than the fire_size_test df
+                            samp_arr= tf.concat([samp_arr, stat_model(ml_param_vec).sample(10000, seed= 99)], axis= 1)
+                            if debug:
+                                fire_ind_grid.append(fire_ind_arr)
+                                ml_param_grid.append(ml_param_vec)
+
+                    size_samp_arr= tf.reduce_mean(samp_arr, axis= 0).numpy()
+                    std_size_arr= tf.math.reduce_std(samp_arr, axis= 0).numpy()
+                    high_1sig_err= deepcopy(std_size_arr)
+                    tot_l1sig_arr= np.sqrt(np.sum(std_size_arr**2))
+
+                    size_samp_arr[size_samp_arr > 2*max_size_arr[i]]= max_size_arr[i]
+                    high_1sig_err[high_1sig_err > max_size_arr[i]]= max_size_arr[i] 
+                    tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
+
+                    if np.sum(size_samp_arr) > 2*sum_size_arr[i]:
+                        mean_burnarea_tot[m]= sum_size_arr[i]
+                    else:
+                        mean_burnarea_tot[m]= np.sum(size_samp_arr)
+
+                    high_1sig_burnarea_tot[m]= mean_burnarea_tot[m] + tot_h1sig_arr
+                    low_1sig_burnarea_tot[m]= mean_burnarea_tot[m] - tot_l1sig_arr
+                    if (mean_burnarea_tot[m] - tot_l1sig_arr) < 0: 
+                        low_1sig_burnarea_tot[m]= 0
+
+                    #if np.max(size_samp_arr) > max_size_arr[i]:
+                    #    max_size_arr[i]= np.max(size_samp_arr)
+
+                    #while np.sum(size_samp_arr) > 2*sum_size_arr[i]:
+                    #    rseed= np.random.randint(10000)
+                    #    size_samp_arr= tf.reduce_mean(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
+                    #    std_size_arr= tf.math.reduce_std(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
+                    #if np.sum(size_samp_arr) > sum_size_arr[i]:
+                    #    sum_size_arr[i]= np.sum(size_samp_arr)
+
+                except KeyError:
+                    if mean_freqs == 0:
+                        mean_burnarea_tot[m]= 0 #current kludge and needs to be fixed
+                        high_1sig_burnarea_tot[m]= 0
+                        low_1sig_burnarea_tot[m]= 0
+                        if debug:
+                            fire_ind_grid.append(np.array([0]))
+                            ml_param_grid.append(np.zeros(ncomps))
+
+        reg_indx_arr= (i+1)*np.ones(tot_months, dtype= np.int64)
+        reg_size_df= reg_size_df.append(pd.DataFrame({'mean_size': mean_burnarea_tot, 'low_1sig_size': low_1sig_burnarea_tot, 'high_1sig_size': high_1sig_burnarea_tot, \
+                                                                                           'reg_indx': reg_indx_arr}), ignore_index=True)
+
+    if debug:
+        return reg_size_df, fire_ind_grid, ml_param_grid
+    else:
+        return reg_size_df
+    
+def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test_df, X_test_dat, custom_ml_model= None, max_size_arr= None, sum_size_arr= None, \
+                                                                func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regrate= 0.001, \
+                                                                freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
+                                                                loco= False, debug= False, regindx= None, rseed= None):
+    
+    # Calculates the predicted fire burned areas as well as its 1 sigma uncertainty for all regions
+    
+    if rseed == None:
+        rseed= np.random.randint(100)
+    tf.random.set_seed(rseed)
+    X_train_dat= np.array(X_train_dat, dtype= np.float32)
+    X_val_dat= np.array(X_val_dat, dtype= np.float32)
+
+    if func_flag == 'gpd':
+        n_layers, n_neurons, n_comps= lnc_arr
+        stat_model= gpd_model
+        loss_func= gpd_loss
+        acc_func= gpd_accuracy
+         
+    elif func_flag == 'lognorm':
+        n_layers, n_neurons, n_comps= lnc_arr     
+        stat_model= lognorm_model
+        loss_func= lognorm_loss
+        acc_func= lognorm_accuracy
+    
+    print("Initialized a MDN with %d layers"%n_layers + " and %d neurons"%n_neurons)
+
+    es_mon = EarlyStopping(monitor='val_loss', min_delta=0, patience= 10, verbose=0, mode='auto')
+    mdn= MDN_size(layers= n_layers, neurons= n_neurons, components= n_comps, initializer= initializer, reg= True, regrate= regrate, dropout= True)
+    mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[acc_func])
+    h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= 500, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= 32, verbose=0) 
+
+    print("MDN trained for %d epochs"%len(h.history['loss']))
+
+    if loco:
+        return mdn, h
+
+    else: 
+        if debug:
+            burnarea_df, fire_ind_grid, ml_param_grid= size_pred_func(mdn, stat_model, size_test_df, X_test_dat, max_size_arr, sum_size_arr, ncomps= n_comps, \
+                                      freq_flag= freq_flag, regmlfreq= regmlfreq, freqs_data= freqs_data, debug= True, regindx= regindx, seed= rseed)
+            return burnarea_df, fire_ind_grid, ml_param_grid
+        else:
+            burnarea_df= size_pred_func(mdn, stat_model, size_test_df, X_test_dat, max_size_arr, sum_size_arr, ncomps= n_comps, freq_flag= freq_flag, \
+                                            regmlfreq= regmlfreq, freqs_data= freqs_data, debug= False, regindx= regindx, seed= rseed)
+            return burnarea_df
