@@ -2,7 +2,7 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from scipy import stats, optimize, interpolate
 import itertools
-import re
+import re #regular expression package
 
 import netCDF4 # module that reads in .nc files (built on top of HDF5 format)
 import pandas as pd
@@ -416,12 +416,16 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
           15: "high_plains", 16: "colorado_plateau", 17: "sw_tablelands", 18: "ch_desert", 19: "ca_total"}
     pred_flabel_arr= {1: ["climate/primary/tmax.nc"], 2: ["climate/primary/es.nc", "climate/primary/ea.nc"], 3: ["climate/primary/prec.nc"], \
                      4: ["climate/primary/prec.nc"], 5: ["climate/primary/ETo_co2.nc"], 6: ["landcover/nlcd/forest.nc"], 7: ["climate/primary/solar.nc"], \
-                     8: ["climate/ucla_era5_wrf/wind_max1.nc"], 9: ["topography/elev.nc"], 10: ["landcover/nlcd/grassland.nc"], \
+                     8: ["climate/ucla_era5_wrf/windmax_max1.nc"], 9: ["topography/elev.nc"], 10: ["landcover/nlcd/grassland.nc"], \
                      11: ["landcover/fuel_winslow/study_regions/deadbiomass_litter.nc"], 12: ["landcover/fuel_winslow/study_regions/livebiomass_leaf.nc"], \
                      13: ["landcover/fuel_winslow/study_regions/connectivity.nc"], 14: ["climate/primary/rh.nc"], 15: ["climate/gridmet/fm1000.nc"], \
                      16: ["climate/era5/cape.nc"], 17: ["landcover/nlcd/urban.nc"], 18: ["climate/ucla_era5_wrf/ffwi_max3.nc"], 19: ["climate/primary/tmin.nc"], \
-                     20: ["climate/ucla_era5_wrf/wind_max3.nc"], 21: ["population/campdist.nc"], 22: ["population/campnum.nc"], 23: ["population/roaddist.nc"]}
-    pred_season_arr= {1: "warm", 2: "antecedent", 3: "annual", 4: "static", 5: "moving_average"} 
+                     20: ["climate/ucla_era5_wrf/windmax_max3.nc"], 21: ["population/campdist.nc"], 22: ["population/campnum.nc"], 23: ["population/roaddist.nc"], \
+                     24: ["climate/ucla_era5_wrf/vpd_max3.nc"], 25: ["climate/ucla_era5_wrf/vpd_max7.nc"], 26: ["climate/ucla_era5_wrf/tmax_max3.nc"], \
+                     27: ["climate/ucla_era5_wrf/tmax_max7.nc"], 28: ["climate/ucla_era5_wrf/tmin_max3.nc"], 29: ["climate/ucla_era5_wrf/tmin_max7.nc"], \
+                     30: ["climate/ucla_era5_wrf/ffwi_max7.nc"], 31: ["topography/slope.nc"], 32: ["topography/southness.nc"]}
+    pred_season_arr= {1: "warm", 2: "antecedent_lag1", 3: "annual", 4: "static", 5: "moving_average_3mo", 6: "moving_average_4mo", 7: "moving_average_2mo", \
+                      8: "antecedent_lag2", 9: "antecedent_avg"} 
                       #be careful about indexing since this is correlated with input for multivariate regression 
 
     if len(pred_flabel_arr[pred_file_indx]) > 1:
@@ -468,17 +472,54 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
             else:
                 return pred_data[fire_tim_ind].values
             
-        elif pred_season == "moving_average":
+        elif pred_season == "moving_average_2mo":
+            fire_tim_ind_mavg= fire_tim_ind_func(pred_file, start_year, final_year, mov_avg= True)
+            seas_indx_1, seas_indx_2= tindx_func(startmon= 10, duration= 2, tim_size= tot_months, mov_avg= True)
+            if savg:
+                return np.asarray([np.mean(np.mean(pred_data[fire_tim_ind_mavg][seas_indx_1[i]:seas_indx_2[i]], axis= (1, 2)), axis= 0) for i in range(len(seas_indx_1))])
+            
+            else:
+                return np.asarray([np.mean(pred_data[fire_tim_ind_mavg][seas_indx_1[i]:seas_indx_2[i]], axis= 0) for i in range(len(seas_indx_1))])
+        
+        elif pred_season == "moving_average_3mo":
             fire_tim_ind_mavg= fire_tim_ind_func(pred_file, start_year, final_year, mov_avg= True)
             seas_indx_1, seas_indx_2= tindx_func(startmon= 9, duration= 3, tim_size= tot_months, mov_avg= True)
             if savg:
                 return np.asarray([np.mean(np.mean(pred_data[fire_tim_ind_mavg][seas_indx_1[i]:seas_indx_2[i]], axis= (1, 2)), axis= 0) for i in range(len(seas_indx_1))])
             else:
                 return np.asarray([np.mean(pred_data[fire_tim_ind_mavg][seas_indx_1[i]:seas_indx_2[i]], axis= 0) for i in range(len(seas_indx_1))])
+        
+        elif pred_season == "moving_average_4mo":
+            fire_tim_ind_mavg= fire_tim_ind_func(pred_file, start_year, final_year, mov_avg= True)
+            seas_indx_1, seas_indx_2= tindx_func(startmon= 8, duration= 4, tim_size= tot_months, mov_avg= True)
+            if savg:
+                return np.asarray([np.mean(np.mean(pred_data[fire_tim_ind_mavg][seas_indx_1[i]:seas_indx_2[i]], axis= (1, 2)), axis= 0) for i in range(len(seas_indx_1))])
+            else:
+                return np.asarray([np.mean(pred_data[fire_tim_ind_mavg][seas_indx_1[i]:seas_indx_2[i]], axis= 0) for i in range(len(seas_indx_1))])
             
-        elif pred_season == "antecedent":
+        elif pred_season == "antecedent_avg":
             fire_tim_ind_ant= fire_tim_ind_func(pred_file, start_year, final_year, antecedent= True)
-            seas_indx_1, seas_indx_2= tindx_func(startmon= 2, duration= 20, tim_size= tot_months)
+            seas_indx_1, seas_indx_2= tindx_func(startmon= 2, duration= 20, tim_size= tot_months) #based on Park's 2019 paper "best" correlation
+            if savg:
+                pred_data= np.asarray([np.mean(pred_data[fire_tim_ind_ant][seas_indx_1[i]:seas_indx_2[i]], axis=(1, 2)).values for i in range(len(seas_indx_1))])
+                return np.repeat(np.mean(pred_data, axis= 1), 12) # assumption: antecedent precipitation is the same for all fire months
+            else:
+                pred_data= np.asarray([np.mean(pred_data[fire_tim_ind_ant][seas_indx_1[i]:seas_indx_2[i]], axis= 0) for i in range(len(seas_indx_1))])
+                return np.kron(pred_data, np.ones((12, 1, 1))) # assumption: antecedent precipitation is the same for all fire months
+        
+        elif pred_season == "antecedent_lag2":
+            fire_tim_ind_ant= fire_tim_ind_func(pred_file, start_year, final_year, antecedent= True)
+            seas_indx_1, seas_indx_2= tindx_func(startmon= 0, duration= 12, tim_size= tot_months)
+            if savg:
+                pred_data= np.asarray([np.mean(pred_data[fire_tim_ind_ant][seas_indx_1[i]:seas_indx_2[i]], axis=(1, 2)).values for i in range(len(seas_indx_1))])
+                return np.repeat(np.mean(pred_data, axis= 1), 12) # assumption: antecedent precipitation is the same for all fire months
+            else:
+                pred_data= np.asarray([np.mean(pred_data[fire_tim_ind_ant][seas_indx_1[i]:seas_indx_2[i]], axis= 0) for i in range(len(seas_indx_1))])
+                return np.kron(pred_data, np.ones((12, 1, 1))) # assumption: antecedent precipitation is the same for all fire months
+        
+        elif pred_season == "antecedent_lag1":
+            fire_tim_ind_ant= fire_tim_ind_func(pred_file, start_year, final_year, antecedent= True)
+            seas_indx_1, seas_indx_2= tindx_func(startmon= 12, duration= 12, tim_size= tot_months)
             if savg:
                 pred_data= np.asarray([np.mean(pred_data[fire_tim_ind_ant][seas_indx_1[i]:seas_indx_2[i]], axis=(1, 2)).values for i in range(len(seas_indx_1))])
                 return np.repeat(np.mean(pred_data, axis= 1), 12) # assumption: antecedent precipitation is the same for all fire months
@@ -501,7 +542,7 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
                 return pred_data.values
 
 
-def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year= 2019): 
+def init_fire_freq_df(firedf, regindx= None, lflag= 'L3', start_year= 1984, final_year= 2019): 
     
     #constructs the input dataframe for a NN-based likelihood model of fire frequency
     
@@ -512,91 +553,139 @@ def init_fire_freq_df(firedf, regindx, lflag= 'L3', start_year= 1984, final_year
     tot_months= (final_year + 1 - start_year)*12
     
     if lflag == 'L3':
-        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], 'Elev': [], \
-                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'Ant_VPD': [], 'Avgprec': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI': [], \
-                          'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
+        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec_lag1': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], 'Elev': [], \
+                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'AvgVPD_3mo': [], 'Avgprec_3mo': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI_max3': [], \
+                          'FFWI_max7': [], 'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'Antprec_lag2': [], 'Avgprec_4mo': [], 'Avgprec_2mo': [],\
+                          'VPD_max3': [], 'VPD_max7': [], 'Tmax_max3': [], 'Tmax_max7': [], 'Slope': [], 'Southness': [], 'AvgVPD_4mo': [], 'AvgVPD_2mo': [], \
+                          'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
     
         for r in (1 + np.arange(len(regname), dtype= int)):
             print("Creating dataframe for %s"%regname[r])
-
+            
+            #Climate variables 
             reg_tmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
-            reg_vpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_vpd_mean= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_prec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
-            reg_antprec= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 2, regindx= r, tscale= "monthly", savg= True)
-            reg_forest= clim_pred_var(pred_file_indx= 6, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
+            reg_antprec_1= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 2, regindx= r, tscale= "monthly", savg= True)
+            reg_antprec_2= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 8, regindx= r, tscale= "monthly", savg= True)
             reg_solar= clim_pred_var(pred_file_indx= 7, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_wind= clim_pred_var(pred_file_indx= 8, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
-            reg_grass= clim_pred_var(pred_file_indx= 10, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
             reg_rh= clim_pred_var(pred_file_indx= 14, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_fm1000= clim_pred_var(pred_file_indx= 15, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_anttmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 5, regindx= r, tscale= "monthly", savg= True)
-            reg_antvpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 5, regindx= r, tscale= "monthly", savg= True)
-            reg_avgprec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 5, regindx= r, tscale= "monthly", savg= True)
+            reg_avgvpd_3mo= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 5, regindx= r, tscale= "monthly", savg= True)
+            reg_avgvpd_4mo= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 6, regindx= r, tscale= "monthly", savg= True)
+            reg_avgvpd_2mo= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 7, regindx= r, tscale= "monthly", savg= True)
+            reg_avgprec_3mo= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 5, regindx= r, tscale= "monthly", savg= True)
+            reg_avgprec_4mo= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 6, regindx= r, tscale= "monthly", savg= True)
+            reg_avgprec_2mo= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 7, regindx= r, tscale= "monthly", savg= True)
             reg_antrh= clim_pred_var(pred_file_indx= 14, pred_seas_indx= 5, regindx= r, tscale= "monthly", savg= True)
             reg_cape= clim_pred_var(pred_file_indx= 16, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             #reg_capexp= np.multiply(reg_cape, reg_prec)*10**-5/24 # lightning flash rate in km^-2 hr^-1
-            reg_urban= clim_pred_var(pred_file_indx= 17, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
-            reg_ffwi= clim_pred_var(pred_file_indx= 18, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
             reg_tmin= clim_pred_var(pred_file_indx= 19, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            
+            #Extreme weather correlates
+            reg_ffwi_max3= clim_pred_var(pred_file_indx= 18, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_ffwi_max7= clim_pred_var(pred_file_indx= 30, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_vpd_max3= clim_pred_var(pred_file_indx= 24, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_vpd_max7= clim_pred_var(pred_file_indx= 25, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_tmax_max3= clim_pred_var(pred_file_indx= 26, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            reg_tmax_max7= clim_pred_var(pred_file_indx= 27, pred_seas_indx= 1, regindx= r, tscale= "monthly", savg= True)
+            
+            #Landcover variables 
+            reg_forest= clim_pred_var(pred_file_indx= 6, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
+            reg_grass= clim_pred_var(pred_file_indx= 10, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
+            reg_urban= clim_pred_var(pred_file_indx= 17, pred_seas_indx= 3, regindx= r, tscale= "monthly", savg= True)
+            
+            #Topographic variables 
             reg_elev= clim_pred_var(pred_file_indx= 9, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
+            reg_slope= clim_pred_var(pred_file_indx= 31, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
+            reg_southness= clim_pred_var(pred_file_indx= 32, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
             reg_campdist= clim_pred_var(pred_file_indx= 21, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
             reg_campnum= clim_pred_var(pred_file_indx= 22, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
             reg_roaddist= clim_pred_var(pred_file_indx= 23, pred_seas_indx= 4, regindx= r, tscale= "monthly", savg= True)
 
-
             reg_fire_freq= mon_fire_freq(wildfiredf= firedf, regindx= r, start_year= start_year, final_year= final_year).flatten()
             month_arr= np.linspace(0, tot_months - 1, tot_months, dtype= int)
 
-            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd, 'Prec': reg_prec, 'Antprec': reg_antprec, 'Forest': reg_forest, 'Solar': reg_solar, \
-                        'Wind': reg_wind, 'Grassland': reg_grass, 'Elev': reg_elev,'RH': reg_rh, 'FM1000': reg_fm1000, 'Ant_Tmax': reg_anttmax, 'Ant_VPD': reg_antvpd, \
-                        'Avgprec': reg_avgprec, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, 'FFWI': reg_ffwi, 'Tmin': reg_tmin, 'Camp_dist': reg_campdist, \
-                        'Camp_num': reg_campnum, 'Road_dist': reg_roaddist, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': r*np.ones(tot_months, dtype= int)}), ignore_index=True)
+            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd_mean, 'Prec': reg_prec, 'Antprec_lag1': reg_antprec_1, 'Forest': reg_forest, \
+                'Solar': reg_solar, 'Wind': reg_wind, 'Grassland': reg_grass, 'Elev': reg_elev, 'RH': reg_rh, 'FM1000': reg_fm1000, 'Ant_Tmax': reg_anttmax, \
+                'AvgVPD_3mo': reg_avgvpd_3mo, 'Avgprec_3mo': reg_avgprec_3mo, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, 'FFWI_max3': reg_ffwi_max3, \
+                'FFWI_max7': reg_ffwi_max7, 'Tmin': reg_tmin, 'Camp_dist': reg_campdist, 'Camp_num': reg_campnum, 'Road_dist': reg_roaddist, \
+                'Antprec_lag2': reg_antprec_2, 'Avgprec_4mo': reg_avgprec_4mo, 'Avgprec_2mo': reg_avgprec_2mo, 'VPD_max3': reg_vpd_max3, 'VPD_max7': reg_vpd_max7, \
+                'Tmax_max3': reg_tmax_max3, 'Tmax_max7': reg_tmax_max7, 'Slope': reg_slope, 'Southness': reg_southness, 'AvgVPD_2mo': reg_avgvpd_2mo, \
+                'AvgVPD_4mo': reg_avgvpd_4mo, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': r*np.ones(tot_months, dtype= int)}), ignore_index=True)
     
     elif lflag == 'L4':
-        reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], 'Elev': [], \
-                          'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'Ant_VPD': [], 'Avgprec': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI': [], \
-                          'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int'), 'l4_indx': pd.Series(dtype= 'U8')})
+        reg_df= reg_df= pd.DataFrame({'Tmax': [], 'VPD': [], 'Prec': [], 'Antprec_lag1': [], 'Forest': [], 'Solar': [], 'Wind': [], 'Grassland': [], 'Elev': [], \
+                        'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'AvgVPD_3mo': [], 'Avgprec_3mo': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI_max3': [], \
+                        'FFWI_max7': [], 'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'Antprec_lag2': [], 'Avgprec_4mo': [], 'Avgprec_2mo': [],\
+                        'VPD_max3': [], 'VPD_max7': [], 'Tmax_max3': [], 'Tmax_max7': [], 'Slope': [], 'Southness': [], 'AvgVPD_4mo': [], 'AvgVPD_2mo': [], \
+                        'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int'), 'l4_indx': pd.Series(dtype='U8')})
     
         print("Creating dataframe for %s"%regname[regindx])
         regshp= bailey_ecoprovince_shp(region= regname[regindx], lflag= 'L4')
         l4regs= regshp['US_L4CODE'].unique()
 
         for l in l4regs:
-            reg_tmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_vpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_prec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_antprec= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 2, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_forest= clim_pred_var(pred_file_indx= 6, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_solar= clim_pred_var(pred_file_indx= 7, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_wind= clim_pred_var(pred_file_indx= 8, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_grass= clim_pred_var(pred_file_indx= 10, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_rh= clim_pred_var(pred_file_indx= 14, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_fm1000= clim_pred_var(pred_file_indx= 15, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_anttmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_antvpd= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_avgprec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_antrh= clim_pred_var(pred_file_indx= 14, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_cape= clim_pred_var(pred_file_indx= 16, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
+            #Climate variables 
+            reg_tmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_vpd_mean= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_prec= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_antprec_1= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 2, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_antprec_2= clim_pred_var(pred_file_indx= 4, pred_seas_indx= 8, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_solar= clim_pred_var(pred_file_indx= 7, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_wind= clim_pred_var(pred_file_indx= 8, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_rh= clim_pred_var(pred_file_indx= 14, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_fm1000= clim_pred_var(pred_file_indx= 15, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_anttmax= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_avgvpd_3mo= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_avgvpd_4mo= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 6, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_avgvpd_2mo= clim_pred_var(pred_file_indx= 2, pred_seas_indx= 7, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_avgprec_3mo= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_avgprec_4mo= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 6, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_avgprec_2mo= clim_pred_var(pred_file_indx= 3, pred_seas_indx= 7, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_antrh= clim_pred_var(pred_file_indx= 14, pred_seas_indx= 5, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_cape= clim_pred_var(pred_file_indx= 16, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
             #reg_capexp= np.multiply(reg_cape, reg_prec)*10**-5/24 # lightning flash rate in km^-2 hr^-1
-            reg_urban= clim_pred_var(pred_file_indx= 17, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_ffwi= clim_pred_var(pred_file_indx= 18, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_tmin= clim_pred_var(pred_file_indx= 19, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_elev= clim_pred_var(pred_file_indx= 9, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_campdist= clim_pred_var(pred_file_indx= 21, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_campnum= clim_pred_var(pred_file_indx= 22, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
-            reg_roaddist= clim_pred_var(pred_file_indx= 23, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx =l, tscale= "monthly", savg= True)
+            reg_tmin= clim_pred_var(pred_file_indx= 19, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            
+            #Extreme weather correlates
+            reg_ffwi_max3= clim_pred_var(pred_file_indx= 18, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_ffwi_max7= clim_pred_var(pred_file_indx= 30, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_vpd_max3= clim_pred_var(pred_file_indx= 24, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_vpd_max7= clim_pred_var(pred_file_indx= 25, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_tmax_max3= clim_pred_var(pred_file_indx= 26, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_tmax_max7= clim_pred_var(pred_file_indx= 27, pred_seas_indx= 1, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            
+            #Landcover variables 
+            reg_forest= clim_pred_var(pred_file_indx= 6, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_grass= clim_pred_var(pred_file_indx= 10, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_urban= clim_pred_var(pred_file_indx= 17, pred_seas_indx= 3, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            
+            #Topographic variables 
+            reg_elev= clim_pred_var(pred_file_indx= 9, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_slope= clim_pred_var(pred_file_indx= 31, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_southness= clim_pred_var(pred_file_indx= 32, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_campdist= clim_pred_var(pred_file_indx= 21, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_campnum= clim_pred_var(pred_file_indx= 22, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
+            reg_roaddist= clim_pred_var(pred_file_indx= 23, pred_seas_indx= 4, regindx= regindx, lflag= 'L4', l4indx= l, tscale= "monthly", savg= True)
 
             reg_fire_freq= mon_fire_freq_2(wildfiredf= firedf, regindx= regindx, l4indx= l, start_year= start_year, final_year= final_year).flatten()
             month_arr= np.linspace(0, tot_months - 1, tot_months, dtype= int)
 
-            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd, 'Prec': reg_prec, 'Antprec': reg_antprec, 'Forest': reg_forest, 'Solar': reg_solar, \
-                        'Wind': reg_wind, 'Grassland': reg_grass, 'Elev': reg_elev,'RH': reg_rh, 'FM1000': reg_fm1000, 'Ant_Tmax': reg_anttmax, 'Ant_VPD': reg_antvpd, \
-                        'Avgprec': reg_avgprec, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, 'FFWI': reg_ffwi, 'Tmin': reg_tmin, 'Camp_dist': reg_campdist, \
-                        'Camp_num': reg_campnum, 'Road_dist': reg_roaddist, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': regindx*np.ones(tot_months, dtype= int), 'l4_indx': np.repeat(l, tot_months).astype('U8')}), ignore_index=True)
+            reg_df= reg_df.append(pd.DataFrame({'Tmax': reg_tmax, 'VPD': reg_vpd_mean, 'Prec': reg_prec, 'Antprec_lag1': reg_antprec_1, 'Forest': reg_forest, \
+                'Solar': reg_solar, 'Wind': reg_wind, 'Grassland': reg_grass, 'Elev': reg_elev, 'RH': reg_rh, 'FM1000': reg_fm1000, 'Ant_Tmax': reg_anttmax, \
+                'AvgVPD_3mo': reg_avgvpd_3mo, 'Avgprec_3mo': reg_avgprec_3mo, 'Ant_RH': reg_antrh, 'CAPE': reg_cape, 'Urban': reg_urban, 'FFWI_max3': reg_ffwi_max3, \
+                'FFWI_max7': reg_ffwi_max7, 'Tmin': reg_tmin, 'Camp_dist': reg_campdist, 'Camp_num': reg_campnum, 'Road_dist': reg_roaddist, \
+                'Antprec_lag2': reg_antprec_2, 'Avgprec_4mo': reg_avgprec_4mo, 'Avgprec_2mo': reg_avgprec_2mo, 'VPD_max3': reg_vpd_max3, 'VPD_max7': reg_vpd_max7, \
+                'Tmax_max3': reg_tmax_max3, 'Tmax_max7': reg_tmax_max7, 'Slope': reg_slope, 'Southness': reg_southness, 'AvgVPD_2mo': reg_avgvpd_2mo, \
+                'AvgVPD_4mo': reg_avgvpd_4mo, 'fire_freq': reg_fire_freq, 'month': month_arr, 'reg_indx': regindx*np.ones(tot_months, dtype= int), \
+                'l4_indx': np.repeat(l, tot_months).astype('U8')}), ignore_index=True)
     
     return reg_df #, reg_fire_ind
 
-def init_fire_size_df(firefile, regindx, lflag= 'L3', start_year= 1984, final_year= 2019): 
+def init_fire_size_df(firefile, regindx= None, lflag= 'L3', start_year= 1984, final_year= 2019): 
     
     #constructs the input dataframe for a NN-based likelihood model of fire frequency
     
@@ -752,8 +841,8 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
     
     merged['cell_frac']= gridfracarr
     merged['raster_coords']= rastercoords
-    merged['grid_x']= [coord_arr[merged['grid_indx'].loc[[ind]]][0][0] for ind in merged.index]
-    merged['grid_y']= [coord_arr[merged['grid_indx'].loc[[ind]]][0][1] for ind in merged.index]
+    merged['grid_y']= [coord_arr[merged['grid_indx'].loc[[ind]]][0][0] for ind in merged.index]
+    merged['grid_x']= [coord_arr[merged['grid_indx'].loc[[ind]]][0][1] for ind in merged.index]
     
     print("Overlayed the fire points on the raster grid to obtain cell fraction for each fire");
     
@@ -771,17 +860,27 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
         return merged
 
     else:
-        pred_flabel_arr= {1: ['Tmax', 'warm'], 2: ['VPD', 'warm'], 3: ['Prec', 'warm'], 4: ['Antprec', 'antecedent'], 5: ['Forest', 'annual'], 6: ['Solar', 'warm'], 7: ['Wind', 'warm'], 8: ['Elev', 'static'], 9: ['Grassland', 'annual'], \
-                              10: ['RH', 'warm'], 11: ['FM1000', 'warm'], 12: ['Tmax', 'moving_average', 'Ant_Tmax'], 13: ['VPD', 'moving_average', 'Ant_VPD'], 14: ['Prec', 'moving_average', 'Avgprec'], 15: ['RH', 'moving_average', 'Ant_RH'],
-                              16: ['CAPE', 'warm'], 17: ['Urban', 'annual'], 18: ['FFWI', 'warm'], 19: ['Tmin', 'warm']}
-        pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Antprec': 4, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, 'Urban': 17, 'FFWI': 18, 'Tmin': 19}
-        pred_sindx_arr= {"warm": 1, "antecedent": 2, "annual": 3, "static": 4, "moving_average": 5} 
-
+        pred_flabel_arr= {1: ['Tmax', 'warm'], 2: ['VPD', 'warm'], 3: ['Prec', 'warm'], 4: ['Prec', 'antecedent_lag1', 'Antprec_lag1'], 5: ['Forest', 'annual'], \
+                        6: ['Solar', 'warm'], 7: ['Wind', 'warm'], 8: ['Elev', 'static'], 9: ['Grassland', 'annual'], 10: ['RH', 'warm'], 11: ['FM1000', 'warm'], \
+                        12: ['Tmax', 'moving_average_3mo', 'Ant_Tmax'], 13: ['VPD', 'moving_average_3mo', 'AvgVPD_3mo'], \
+                        14: ['Prec', 'moving_average_3mo', 'Avgprec_3mo'], 15: ['RH', 'moving_average_3mo', 'Ant_RH'], 16: ['CAPE', 'warm'], 17: ['Urban', 'annual'],\
+                        18: ['FFWI_max3', 'warm'], 19:['FFWI_max7', 'warm'], 20: ['Tmin', 'warm'], 21: ['Camp_dist', 'static'], 22: ['Camp_num', 'static'], \
+                        23: ['Road_dist', 'static'], 24: ['Prec', 'antecedent_lag2', 'Antprec_lag2'], 25: ['Prec', 'moving_average_4mo', 'Avgprec_4mo'], \
+                        26: ['Prec', 'moving_average_2mo', 'Avgprec_2mo'], 27: ['VPD_max3', 'warm'], 28: ['VPD_max7', 'warm'], 29: ['Tmax_max3', 'warm'], \
+                        30: ['Tmax_max7', 'warm'], 31: ['Tmin_max3', 'warm'], 32: ['Tmin_max7', 'warm'], 33: ['Slope', 'static'], 34:['Southness', 'static'], \
+                        35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo']}
+        
+        pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, \
+                         'Urban': 17, 'FFWI_max3': 18, 'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, \
+                         'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, 'Tmin_max7': 29, 'Slope': 31, 'Southness': 32}
+        pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, \
+                         "antecedent_lag2": 8, "antecedent_avg": 9} 
+        
         for i in tqdm(range(len(pred_flabel_arr))): 
 
             pred_var= pred_flabel_arr[i+1][0]
             seas_var= pred_flabel_arr[i+1][1]
-            if seas_var == 'moving_average':
+            if pred_sindx_arr[seas_var] in [2, 5, 6, 7, 8, 9]:
                 gdf_var= pred_flabel_arr[i+1][2]
             else:
                 gdf_var= pred_var
@@ -836,13 +935,13 @@ def init_eff_clim_fire_df(firegdf, final_month= 372):
     firegdf= firegdf[firegdf['fire_month'] < final_month]
     firegroups= firegdf.groupby('fire_indx')
     
-    newdf= firegdf.iloc[:, 0:8]
+    newdf= firegdf.iloc[:, 0:8] # the first 8 columns contain geometry information 
     newdf= newdf.drop_duplicates(subset=['fire_indx']).reset_index().drop(columns= ['index'])
     climdf= pd.DataFrame(columns= firegdf.columns[8:])
     
     for k in tqdm(firegroups.groups.keys()):
         climdf= climdf.append(pd.DataFrame(data= np.reshape(np.average(firegroups.get_group(k).iloc[:, 8:], axis= 0, \
-                                    weights= firegroups.get_group(k)['cell_frac']), (1, 19)), \
+                                    weights= firegroups.get_group(k)['cell_frac']), (1, len(firegdf.columns[8:]))), \
                                     columns= firegdf.columns[8:]), ignore_index= True)
     
     climdf= climdf.reset_index().drop(columns= ['index'])
@@ -850,6 +949,68 @@ def init_eff_clim_fire_df(firegdf, final_month= 372):
     newdf= newdf.drop(columns= ['cell_frac'])
     
     return newdf
+
+def init_clim_fire_grid(res= '12km', start_year= 1984, final_year= 2019):
+    
+    # Initializes a dataframe with climate and fire frequency information at each grid point
+    
+    pred_flabel_arr= {1: ['Tmax', 'warm'], 2: ['VPD', 'warm'], 3: ['Prec', 'warm'], 4: ['Prec', 'antecedent_lag1', 'Antprec_lag1'], 5: ['Forest', 'annual'], \
+                        6: ['Solar', 'warm'], 7: ['Wind', 'warm'], 8: ['Elev', 'static'], 9: ['Grassland', 'annual'], 10: ['RH', 'warm'], 11: ['FM1000', 'warm'], \
+                        12: ['Tmax', 'moving_average_3mo', 'Ant_Tmax'], 13: ['VPD', 'moving_average_3mo', 'AvgVPD_3mo'], \
+                        14: ['Prec', 'moving_average_3mo', 'Avgprec_3mo'], 15: ['RH', 'moving_average_3mo', 'Ant_RH'], 16: ['CAPE', 'warm'], 17: ['Urban', 'annual'],\
+                        18: ['FFWI_max3', 'warm'], 19:['FFWI_max7', 'warm'], 20: ['Tmin', 'warm'], 21: ['Camp_dist', 'static'], 22: ['Camp_num', 'static'], \
+                        23: ['Road_dist', 'static'], 24: ['Prec', 'antecedent_lag2', 'Antprec_lag2'], 25: ['Prec', 'moving_average_4mo', 'Avgprec_4mo'], \
+                        26: ['Prec', 'moving_average_2mo', 'Avgprec_2mo'], 27: ['VPD_max3', 'warm'], 28: ['VPD_max7', 'warm'], 29: ['Tmax_max3', 'warm'], \
+                        30: ['Tmax_max7', 'warm'], 31: ['Tmin_max3', 'warm'], 32: ['Tmin_max7', 'warm'], 33: ['Slope', 'static'], 34:['Southness', 'static'], \
+                        35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo']}
+    pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, \
+                         'Urban': 17, 'FFWI_max3': 18, 'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, \
+                         'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, 'Tmin_max7': 29, 'Slope': 31, 'Southness': 32}
+    pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, \
+                         "antecedent_lag2": 8, "antecedent_avg": 9} 
+    
+    clim_fire_df= pd.DataFrame([])
+    tot_months= (final_year + 1 - start_year)*12
+    
+    for i in tqdm(range(len(pred_flabel_arr))): 
+        pred_var= pred_flabel_arr[i+1][0]
+        seas_var= pred_flabel_arr[i+1][1]
+        if pred_sindx_arr[seas_var] in [2, 5, 6, 7, 8, 9]:
+            gdf_var= pred_flabel_arr[i+1][2]
+        else:
+            gdf_var= pred_var
+
+        clim_var_data= clim_pred_var(pred_file_indx= pred_findx_arr[pred_var], pred_seas_indx= pred_sindx_arr[seas_var], tscale= "monthly", savg= False, \
+                                                                                                            start_year= start_year, final_year= final_year)
+        if res == '24km':
+            if seas_var == 'static':
+                clim_var_arr= np.nanmean(sliding_window_view(clim_var_data[:-1 , :], (2, 2), axis= (0, 1)), axis= (2, 3))[::2, ::2]
+            else:
+                clim_var_arr= np.nanmean(sliding_window_view(clim_var_data[:, :-1 , :], (2, 2), axis= (1, 2)), axis= (3, 4))[:, ::2, ::2]
+        elif res == '12km':
+            clim_var_arr= clim_var_data
+        elif res == '1km':
+            print("There is no climate functionality for this resolution currently!")
+        
+        if seas_var == 'static':
+            var_arr= xarray.DataArray(data= np.tile(clim_var_arr, (tot_months, 1, 1)),
+                        dims=["time", "Y", "X"],
+                        coords=dict(
+                        X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                        Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
+                        time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
+        else:
+            var_arr= xarray.DataArray(data= clim_var_arr,
+                        dims=["time", "Y", "X"],
+                        coords=dict(
+                        X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                        Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
+                        time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
+
+        var_df= var_arr.to_dataframe(name= gdf_var).dropna().reset_index()
+        clim_fire_df= pd.concat([clim_fire_df, var_df[gdf_var]], axis= 1)
+        
+    return clim_fire_df
 
 #archived function for indiviudal climate-fire correlations from Park's .nc file
 
