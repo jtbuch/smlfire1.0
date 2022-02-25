@@ -1253,6 +1253,7 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
         
     param_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Trees", "Rebalance frac", "Threshold", "Train Accuracy", "Train Recall", \
                                                                                                                     "Test Accuracy", "Test Recall"])
+<<<<<<< HEAD
     return param_df
 
 def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
@@ -1325,3 +1326,6 @@ def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096,
     hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy"])
     
     return hp_df
+=======
+    return param_df
+>>>>>>> dc56dce84cbb56b14b611ac921b0bfca3351813f
