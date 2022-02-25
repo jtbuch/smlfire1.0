@@ -299,6 +299,19 @@ class MDN_freq(tf.keras.Model):
         
         return self.pvec([pi_v, mu_v, delta_v])
 
+class DNN(tf.keras.Model):
+    def __init__(self, layers= 2, neurons= 16, initializer= "he_normal", reg= False, regrate= None, dropout= False):
+        super(DNN, self).__init__(name="DNN")
+        self.neurons= neurons
+        self.n_hidden_layers= layers
+        
+        self.seqblock= SeqBlock(layers, neurons, initializer, reg, regrate, dropout)
+        self.out = Dense(1, activation="sigmoid", name="out")
+        
+    def call(self, inputs):
+        x = self.seqblock(inputs)
+        return self.out(x)
+
 def hyperparam_tuning(n_layers, n_neurons, n_components= None, bs= 128, epochs= 1000, lr= 1e-4, X_dat= None, y_dat= None, fire_tag= 'size', func_flag= 'gpd', samp_weights= False, samp_weight_arr= None):
     
     # Function for tuning the hyperparamters of the MDNs to determine fire properties
@@ -753,7 +766,7 @@ def fire_freq_predict(fire_L3_freq_df, fire_L4_freq_df, dropcols= ['index', 'Tmi
 
 def load_ml_freq(fire_L4_freq_df, fire_L3_freq_df, dropcols= ['index', 'Tmin', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'Elev', 'Camp_dist'], run_id= None): 
     
-    # Loads the frequency distribution from prior saved 'best fit' runs
+    # Loads the frequency distribution from prior saved 'best fit' runs --> used for plotting CCDF plots
     
     n_regions= 18
     tot_months= 60
@@ -826,11 +839,11 @@ def load_ml_freq(fire_L4_freq_df, fire_L3_freq_df, dropcols= ['index', 'Tmin', '
 
 def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, bs= 32, run_id= None):
     
-    # Evaluates the chisq and Pearson's correlation for observed and predicted fire frequencies for calcualting the variable importance using a LOCO approach
+    # Calculates the variable importance for a fire frequency MDN using a LOCO approach
     
     n_regions= 18
     tot_months= 60
-    locoarr= ['VPD', 'Tmax', 'Prec', 'Forest', 'FM1000', 'Ant_VPD', 'Avgprec', 'Urban', 'CAPE']
+    locoarr= ['VPD', 'Tmax', 'Prec', 'Forest', 'FM1000', 'Ant_VPD', 'Antprec', 'Avgprec', 'Urban', 'FFWI']
     list_of_lists= []
     
     for it in tqdm(range(n_iters)):
@@ -928,7 +941,7 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
     reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'low_1sig_size': pd.Series(dtype= 'int'), 'high_1sig_size': pd.Series(dtype= 'int'), \
                                                                                            'reg_indx': pd.Series(dtype= 'int')})
 
-    for i in tqdm(range(n_regions)): 
+    for i in range(n_regions): 
         if debug:
             size_ind_df= size_test_df.reset_index()[['fire_size', 'fire_month', 'reg_indx']]
             reg_ind_df= size_ind_df.groupby('reg_indx').get_group(regindx).groupby('fire_month')
@@ -968,9 +981,9 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
                 mean_burnarea_tot[m]= 0
                 high_1sig_burnarea_tot[m]= 0
                 low_1sig_burnarea_tot[m]= 0
-                if debug:
-                    fire_ind_grid.append(np.array([0]))
-                    ml_param_grid.append(np.zeros(ncomps))
+                #if debug:
+                    #fire_ind_grid.append(np.array([0]))
+                    #ml_param_grid.append(np.array([np.zeros(3*ncomps, dtype= np.float32)]))
 
             else:
                 try:
@@ -1024,9 +1037,9 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
                         mean_burnarea_tot[m]= 0 #current kludge and needs to be fixed
                         high_1sig_burnarea_tot[m]= 0
                         low_1sig_burnarea_tot[m]= 0
-                        if debug:
-                            fire_ind_grid.append(np.array([0]))
-                            ml_param_grid.append(np.zeros(ncomps))
+                        #if debug:
+                        #    fire_ind_grid.append(np.array([0]))
+                        #    ml_param_grid.append(np.array([np.zeros(3*ncomps, dtype= np.float32)]))
 
         reg_indx_arr= (i+1)*np.ones(tot_months, dtype= np.int64)
         reg_size_df= reg_size_df.append(pd.DataFrame({'mean_size': mean_burnarea_tot, 'low_1sig_size': low_1sig_burnarea_tot, 'high_1sig_size': high_1sig_burnarea_tot, \
@@ -1038,9 +1051,9 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
         return reg_size_df
     
 def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test_df, X_test_dat, custom_ml_model= None, max_size_arr= None, sum_size_arr= None, \
-                                                                func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regrate= 0.001, \
-                                                                freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
-                                                                loco= False, debug= False, regindx= None, rseed= None):
+                                                        func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regrate= 0.001, epochs= 500, bs= 32, \
+                                                        freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
+                                                        loco= False, debug= False, regindx= None, rseed= None):
     
     # Calculates the predicted fire burned areas as well as its 1 sigma uncertainty for all regions
     
@@ -1067,7 +1080,7 @@ def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test
     es_mon = EarlyStopping(monitor='val_loss', min_delta=0, patience= 10, verbose=0, mode='auto')
     mdn= MDN_size(layers= n_layers, neurons= n_neurons, components= n_comps, initializer= initializer, reg= True, regrate= regrate, dropout= True)
     mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[acc_func])
-    h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= 500, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= 32, verbose=0) 
+    h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= bs, verbose=0) 
 
     print("MDN trained for %d epochs"%len(h.history['loss']))
 
@@ -1083,3 +1096,232 @@ def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test
             burnarea_df= size_pred_func(mdn, stat_model, size_test_df, X_test_dat, max_size_arr, sum_size_arr, ncomps= n_comps, freq_flag= freq_flag, \
                                             regmlfreq= regmlfreq, freqs_data= freqs_data, debug= False, regindx= regindx, seed= rseed)
             return burnarea_df
+        
+def size_acc_func(pvec, obs_sizes, func_flag= 'gpd'):
+    
+    if func_flag == 'gpd':
+        stat_model= gpd_model
+    elif func_flag == 'lognormal':
+        stat_model= lognormal_model
+        
+    pmf_pred= stat_model(pvec).prob(obs_sizes)
+    obspmf= tfd.Empirical(obs_sizes)
+    pmf_obs= obspmf.cdf(obs_sizes)
+    
+    acc= 100 - stats.entropy(pmf_obs, qk= pmf_pred)  #converting convex KL divergence to concave equivalent 
+    
+    return acc  
+        
+def fire_size_loco(firefile, reg_freq_df, res= '12km', n_iters= 10, n_epochs= 10, bs= 32, run_id= None):
+    
+    # Calculates the variable importance for a fire frequency MDN using a LOCO approach
+    
+    n_regions= 18
+    locoarr= ['VPD', 'Tmax', 'Forest', 'Urban', 'FM1000', 'Prec', 'Antprec', 'Ant_VPD', 'Avgprec', 'FFWI']
+    list_of_lists= []
+    
+    size_train_df= pd.read_hdf('../data/clim_fire_size_%s_train_data.h5'%res)
+    max_fire_train_arr= []
+    sum_fire_train_arr= []
+    for r in range(n_regions):
+        max_fire_train_arr.append(np.max(np.concatenate(\
+                            [size_train_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(k).fire_size.to_numpy()/1e6  \
+                            for k in size_train_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').groups.keys()])))
+        sum_fire_train_arr.append(np.max([np.sum(\
+                            size_train_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(k).fire_size.to_numpy()/1e6) \
+                            for k in size_train_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').groups.keys()]))
+    max_fire_train_arr= np.asarray(max_fire_train_arr)
+    sum_fire_train_arr= np.asarray(sum_fire_train_arr)
+    
+    for it in tqdm(range(n_iters)):
+        rseed= np.random.randint(100)
+        for var in range(len(locoarr) + 1):
+            if var == 0: # 0 corresponds to all variables
+                dropvarlist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH']
+            else:
+                print("Loading predictor variable data without %s"%locoarr[var - 1])
+                dropvarlist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', locoarr[var - 1]]
+
+            X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, \
+                                y_sizes_test= fire_size_data(res= res, dropcols= dropvarlist)
+
+            mdn_size_gpd, _= reg_fire_size_func(X_train_dat= X_sizes_train, y_train_dat= y_sizes_train, X_val_dat= X_sizes_val, y_val_dat= y_sizes_val, \
+                                    size_test_df= fire_size_test, X_test_dat= X_sizes_test, max_size_arr= max_fire_train_arr, sum_size_arr= sum_fire_train_arr, \
+                                    func_flag= 'gpd', lnc_arr= [2, 8, 2], epochs= n_epochs, bs= bs, loco= True, rseed= rseed)
+            mdn_size_gpd.save('../sav_files/loco_size_runs_%s'%run_id + '/mdn_%s'%res + '_gpd_iter_run_%d'%(it+1) + '_var_%d'%(var))
+            
+            for reg in range(n_regions):
+                reg_ml_size_df, fire_ind_arr, ml_param_arr= size_pred_func(mdn_model= mdn_size_gpd, stat_model= gpd_model, size_test_df= fire_size_test, \
+                                     X_test_dat= X_sizes_test, max_size_arr= max_fire_train_arr, sum_size_arr= sum_fire_train_arr, ncomps= 2, freq_flag= 'ml', \
+                                     regmlfreq= reg_freq_df, debug= True, regindx= (reg + 1), seed= rseed)
+                reg_sizes= y_sizes_test[np.concatenate(fire_ind_arr)]
+                param_vec= [item for sublist in ml_param_arr for item in sublist] # neat hack from: https://stackoverflow.com/questions/952914/
+                obs_sizes= mon_burned_area(firefile, (reg + 1))[372:]
+                mean_sizes= reg_ml_size_df['mean_size']
+                
+                emp_accuracy= size_acc_func(pvec= param_vec, obs_sizes= reg_sizes, func_flag= 'gpd')
+                mod_accuracy= gpd_accuracy(reg_sizes, param_vec)
+                mod_loss= gpd_loss(reg_sizes, param_vec)  
+                pearson_r= stats.pearsonr(obs_sizes, mean_sizes)
+
+                list_of_lists.append([it + 1, var, reg + 1, pearson_r[0], emp_accuracy, mod_accuracy.numpy(), mod_loss.numpy()])
+
+    var_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Variable", "reg_indx", "Pearson_r", "Emp_Accuracy", "Mod_Accuracy", "Loss"])
+    return var_df
+
+
+def rf_fire_grid_run(clim_grid_train_df, rb_frac, n_features= 36, dropcols= ['RH', 'Ant_RH'], n_trees= 100, threshold= 0.4, criterion= 'gini', \
+                                                                                                                    test_data= True, clim_grid_test_df= None):
+    
+    # Creates a RF classifier instance for predicting fire probabilities at the grid scale
+    
+    rseed= np.random.randint(100)
+    df1= clim_grid_train_df[clim_grid_train_df['fire_freq']==1] #.iloc[0:10000]
+    n1= len(df1)
+    n2= rb_frac*n1
+    df2= clim_grid_train_df[clim_grid_train_df['fire_freq']==0]
+    df2= df2.sample(n= int(n2))
+    df_train= pd.concat([df1, df2], sort= False).sample(frac= 1).reset_index(drop=True) #shuffling the rows
+    
+    y_r = np.array(df_train.fire_freq)
+    X_r = df_train.iloc[:, 0:n_features].drop(columns= dropcols)
+    scaler= StandardScaler()
+    X_r= scaler.fit_transform(X_r)
+    X_r= np.array(X_r, dtype=np.float32)
+    X_train, X_val, y_train, y_val = train_test_split(X_r, y_r, test_size=0.3, random_state= 99)
+    
+    rf= RandomForestClassifier(n_estimators= n_trees, criterion= criterion, random_state= rseed)
+    forest= rf.fit(X_train, y_train)
+    print("Trained the RF classifer on %d data points."%len(X_train))
+    
+    if threshold == None:
+        predictions= rf.predict(X_val)
+        errors= abs(predictions - y_val)  
+    else:
+        predicted_thresh= rf.predict_proba(X_val)
+        predictions= (predicted_thresh[:, 1] >= threshold).astype('int')
+        errors= abs(predictions - y_val)
+    print('Training MAE:', round(np.mean(errors), 6))
+    train_accuracy= metrics.accuracy_score(y_val, predictions)
+    train_f1_score= metrics.f1_score(y_val, predictions)
+    train_recall= metrics.recall_score(y_val, predictions)
+    train_metrics= [train_accuracy, train_f1_score, train_recall]
+    
+    if test_data:
+        df3= clim_grid_test_df[clim_grid_test_df['fire_freq']==1] #.iloc[10000:]
+        df4= clim_grid_test_df[clim_grid_test_df['fire_freq']==0]
+        df4= df4.sample(1000000)
+        df_test= pd.concat([df3, df4], sort= False).sample(frac= 1).reset_index(drop=True) #shuffling the rows
+
+        y= np.array(df_test.fire_freq)
+        X= df_test.iloc[:, 0:n_features].drop(columns= dropcols)
+        X= scaler.fit_transform(X) #same scaler as training data
+        X= np.array(X, dtype=np.float32)
+
+        if threshold == None:
+            predictions= rf.predict(X)
+            errors= abs(predictions - y)  
+        else:
+            predicted_thresh= rf.predict_proba(X)
+            predictions= (predicted_thresh[:, 1] >= threshold).astype('int')
+            errors= abs(predictions - y)
+        print('Test MAE:', round(np.mean(errors), 6))
+        test_accuracy= metrics.accuracy_score(y, predictions)
+        test_f1_score= metrics.f1_score(y, predictions)
+        test_recall= metrics.recall_score(y, predictions)
+        test_metrics= [test_accuracy, test_f1_score, test_recall]
+
+        return rf, forest, train_metrics, test_metrics
+    else:
+        return rf, forest, train_metrics
+    
+def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], rb_frac_arr= [10, 4, 3, 7/3, 3/2, 1], \
+                         n_trees_arr= [50, 100, 250, 500, 1000], thresh_arr= [0.4, 0.5, None], n_iters= 5, run_id= None, modsave= False, \
+                         test_data= True, clim_grid_test_df= None):
+    
+    list_of_lists= []
+    
+    for it in tqdm(range(n_iters)):
+        for n_trees in n_trees_arr:
+            for rb_frac in rb_frac_arr:
+                for thresh in thresh_arr:
+                    rf, forest, train_metrics, test_metrics= rf_fire_grid_run(clim_grid_train_df, rb_frac= rb_frac, dropcols= dropcols, \
+                                                                    n_trees= n_trees, threshold= thresh, test_data= True, clim_grid_test_df= clim_grid_test_df)
+                    list_of_lists.append([it + 1, n_trees, rb_frac, np.nan_to_num(thresh), train_metrics[0], train_metrics[1], test_metrics[0], test_metrics[2]])
+            if modsave:
+                joblib.dump(rf, "../sav_files/rf_runs_%s"%run_id + "/rf_mod_%d"%(it+1) + "_%d"%n_trees + "_.joblib")
+        
+    param_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Trees", "Rebalance frac", "Threshold", "Train Accuracy", "Train Recall", \
+                                                                                                                    "Test Accuracy", "Test Recall"])
+    return param_df
+
+def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
+                            dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
+                            start_month= 372, run_id= None):
+    
+    list_of_lists = []
+    
+    for it in tqdm(range(n_iters)):
+        rseed= np.random.randint(1000)
+        n_features= 36
+        #start_month= 372
+
+        fire_freq_train_df= clim_df[clim_df.month < start_month].reset_index().drop(columns=['index'])
+        fire_freq_test_df= clim_df[clim_df.month >= start_month].reset_index().drop(columns=['index'])
+
+        tmp_freq_df= clim_df[clim_df.iloc[:, 0:n_features].columns] 
+        X_freq_df= pd.DataFrame({})
+        scaler= StandardScaler().fit(fire_freq_train_df.iloc[:, 0:n_features])
+        X_freq_df[tmp_freq_df.columns]= scaler.transform(tmp_freq_df)
+        
+        df1= fire_freq_train_df[fire_freq_train_df.fire_freq == 1]
+        df2= fire_freq_train_df[fire_freq_train_df.fire_freq == 0].sample(frac= negfrac, random_state= rseed)
+        fire_freq_train_df= pd.concat([df1, df2], sort= False) #.sample(frac= 1) .reset_index().drop(columns=['index'])
+
+        X_train_df= X_freq_df.iloc[fire_freq_train_df.index].reset_index().drop(columns= dropcols)
+        y_train_arr= np.array(fire_freq_train_df.fire_freq, dtype=np.float32)
+
+        X_test_df= X_freq_df.iloc[-len(fire_freq_test_df):].reset_index().drop(columns= dropcols)
+        X_test_df['reg_indx']= fire_freq_test_df.reg_indx
+        X_test_df['month']= fire_freq_test_df.month
+        y_test_arr= np.array(fire_freq_test_df.fire_freq)
+
+        X_train, X_val, y_train, y_val= train_test_split(X_train_df, y_train_arr, test_size= 0.3, random_state= rseed)
+        bool_train_labels= y_train != 0
+        
+        X_train_pos= X_train[bool_train_labels]
+        X_train_neg= X_train[~bool_train_labels]
+        y_train_pos= y_train[bool_train_labels]
+        y_train_neg= y_train[~bool_train_labels]
+        
+        BUFFER_SIZE= len(X_train) #100000
+        def make_ds(features, labels):
+            ds = tf.data.Dataset.from_tensor_slices((features, labels))#.cache()
+            ds = ds.shuffle(BUFFER_SIZE).repeat()
+            return ds
+
+        pos_ds = make_ds(X_train_pos, y_train_pos)
+        neg_ds = make_ds(X_train_neg, y_train_neg)
+
+        for bs in bs_arr:
+            for p_frac in pfrac_arr:
+                
+                resampled_ds= tf.data.experimental.sample_from_datasets([pos_ds, neg_ds], weights=[p_frac, 1 - p_frac])
+                resampled_ds= resampled_ds.batch(bs).prefetch(2)
+                val_ds= tf.data.Dataset.from_tensor_slices((X_val, y_val)) #.cache()
+                val_ds= val_ds.batch(bs).prefetch(2) 
+                
+                tf.random.set_seed(rseed)
+                mon= EarlyStopping(monitor='val_loss', min_delta=0, patience= 5, verbose=0, mode='auto', restore_best_weights=True)
+                mdn= MDN_freq(layers= 2, neurons= 16)
+                mdn.compile(loss= zipd_loss, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[zipd_accuracy])
+                h_mdn= mdn.fit(resampled_ds, steps_per_epoch= 32, epochs= 500, validation_data= val_ds, callbacks= [mon], verbose= 0) # sample_weight= freq_samp_weight_arr #callbacks= [mon],
+                print("MDN trained for %d epochs"%len(h_mdn.history['loss']))
+                
+                mdn.save('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
+                
+                list_of_lists.append([it+1, bs, p_frac, len(h_mdn.history['loss']), np.nanmean(h_mdn.history['val_zipd_accuracy'])])
+    
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy"])
+    
+    return hp_df
