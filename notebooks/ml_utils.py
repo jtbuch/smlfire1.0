@@ -45,8 +45,9 @@ from scipy import stats, interpolate
 from scipy.optimize import minimize
 
 # Data processing
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, PolynomialFeatures, SplineTransformer
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
 
 #modules for Machine Learning
 from sklearn.ensemble import RandomForestRegressor
@@ -298,6 +299,19 @@ class MDN_freq(tf.keras.Model):
         delta_v = self.delta(x)
         
         return self.pvec([pi_v, mu_v, delta_v])
+
+class DNN(tf.keras.Model):
+    def __init__(self, layers= 2, neurons= 16, initializer= "he_normal", reg= False, regrate= None, dropout= False):
+        super(DNN, self).__init__(name="DNN")
+        self.neurons= neurons
+        self.n_hidden_layers= layers
+        
+        self.seqblock= SeqBlock(layers, neurons, initializer, reg, regrate, dropout)
+        self.out = Dense(1, activation="sigmoid", name="out")
+        
+    def call(self, inputs):
+        x = self.seqblock(inputs)
+        return self.out(x)
 
 def hyperparam_tuning(n_layers, n_neurons, n_components= None, bs= 128, epochs= 1000, lr= 1e-4, X_dat= None, y_dat= None, fire_tag= 'size', func_flag= 'gpd', samp_weights= False, samp_weight_arr= None):
     
@@ -1156,6 +1170,8 @@ def fire_size_loco(firefile, reg_freq_df, res= '12km', n_iters= 10, n_epochs= 10
     var_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Variable", "reg_indx", "Pearson_r", "Emp_Accuracy", "Mod_Accuracy", "Loss"])
     return var_df
 
+## ----------------------------------------------------------------- Random forest functions ----------------------------------------------------------------------------
+
 
 def rf_fire_grid_run(clim_grid_train_df, rb_frac, n_features= 36, dropcols= ['RH', 'Ant_RH'], n_trees= 100, threshold= 0.4, criterion= 'gini', \
                                                                                                                     test_data= True, clim_grid_test_df= None):
@@ -1241,3 +1257,232 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
     param_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Trees", "Rebalance frac", "Threshold", "Train Accuracy", "Train Recall", \
                                                                                                                     "Test Accuracy", "Test Recall"])
     return param_df
+
+
+## ----------------------------------------------------------------- Calibration and prediction functions ----------------------------------------------------------------------------
+
+def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
+                            dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
+                            start_month= 372, test_tot_months= 60, ml_model= 'mdn', run_id= None):
+    
+    list_of_lists = []
+    
+    for it in tqdm(range(n_iters)):
+        rseed= np.random.randint(1000)
+        n_features= 36
+        end_month= start_month + test_tot_months
+
+        fire_freq_test_df= clim_df[(clim_df.month >= start_month) & (clim_df.month < end_month)]
+        fire_freq_train_df= clim_df.drop(fire_freq_test_df.index)
+
+        tmp_freq_df= clim_df[clim_df.iloc[:, 0:n_features].columns] 
+        X_freq_df= pd.DataFrame({})
+        scaler= StandardScaler().fit(fire_freq_train_df.iloc[:, 0:n_features])
+        X_freq_df[tmp_freq_df.columns]= scaler.transform(tmp_freq_df)
+        
+        df1= fire_freq_train_df[fire_freq_train_df.fire_freq == 1]
+        df2= fire_freq_train_df[fire_freq_train_df.fire_freq == 0].sample(frac= negfrac, random_state= rseed)
+        fire_freq_train_df= pd.concat([df1, df2], sort= False) #.sample(frac= 1) .reset_index().drop(columns=['index'])
+
+        X_train_df= X_freq_df.iloc[fire_freq_train_df.index].reset_index().drop(columns= dropcols)
+        y_train_arr= np.array(fire_freq_train_df.fire_freq, dtype=np.float32)
+
+        X_test_df= X_freq_df.iloc[fire_freq_test_df.index]
+        X_test_df.loc[:, 'reg_indx']= fire_freq_test_df.reg_indx
+        X_test_df.loc[:, 'month']= fire_freq_test_df.month
+        X_test_df= X_test_df.reset_index().drop(columns= dropcols)
+        y_test_arr= np.array(fire_freq_test_df.fire_freq)
+
+        X_train, X_val, y_train, y_val= train_test_split(X_train_df, y_train_arr, test_size= 0.3, random_state= rseed)
+        bool_train_labels= y_train != 0
+        
+        X_train_pos= X_train[bool_train_labels]
+        X_train_neg= X_train[~bool_train_labels]
+        y_train_pos= y_train[bool_train_labels]
+        y_train_neg= y_train[~bool_train_labels]
+        
+        BUFFER_SIZE= len(X_train) #100000
+        def make_ds(features, labels):
+            ds = tf.data.Dataset.from_tensor_slices((features, labels))#.cache()
+            ds = ds.shuffle(BUFFER_SIZE).repeat()
+            return ds
+
+        pos_ds = make_ds(X_train_pos, y_train_pos)
+        neg_ds = make_ds(X_train_neg, y_train_neg)
+
+        for bs in bs_arr:
+            for p_frac in pfrac_arr:
+                
+                resampled_ds= tf.data.experimental.sample_from_datasets([pos_ds, neg_ds], weights=[p_frac, 1 - p_frac])
+                resampled_ds= resampled_ds.batch(bs).prefetch(2)
+                val_ds= tf.data.Dataset.from_tensor_slices((X_val, y_val)) #.cache()
+                val_ds= val_ds.batch(bs).prefetch(2) 
+                
+                tf.random.set_seed(rseed)
+                mon= EarlyStopping(monitor='val_loss', min_delta=0, patience= 5, verbose=0, mode='auto', restore_best_weights=True)
+                if ml_model == 'mdn':
+                    mdn= MDN_freq(layers= 2, neurons= 16)
+                    mdn.compile(loss= zipd_loss, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[zipd_accuracy])
+                    h_ml= mdn.fit(resampled_ds, steps_per_epoch= 32, epochs= 500, validation_data= val_ds, callbacks= [mon], verbose= 0) # sample_weight= freq_samp_weight_arr #callbacks= [mon],
+                    
+                    print("MDN trained for %d epochs"%len(h_ml.history['loss']))
+                    mdn.save('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
+                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_zipd_accuracy'])])
+                
+                elif ml_model == 'dnn':
+                    dnn= DNN(layers= 2, neurons= 16)
+                    dnn.compile(loss= "binary_crossentropy", optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics= ['binary_accuracy', tf.keras.metrics.Precision(name='precision'), \
+                                                                                                                                 tf.keras.metrics.Recall(name='recall')])
+                    h_ml= dnn.fit(resampled_ds, steps_per_epoch= 32, epochs= 500, validation_data= val_ds, callbacks= [mon], verbose= 0) # sample_weight= freq_samp_weight_arr #callbacks= [mon],
+                    
+                    print("DNN trained for %d epochs"%len(h_ml.history['loss']))
+                    dnn.save('../sav_files/grid_freq_runs_%s'%run_id + '/dnn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
+                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_recall'])])
+    
+    
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy/Recall"])
+    
+    return hp_df
+
+def reg_pred_freq(X_test_dat, freq_test_df, nregs, start_month, func_flag, run_id, it, bs, p_frac):
+    
+    if func_flag == 'zipd':
+        mdn_grid_zipd= tf.keras.models.load_model('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%it, \
+                                                                                        custom_objects= {'zipd_loss': zipd_loss, 'zipd_accuracy': zipd_accuracy})
+        mdn_freq_df= grid_freq_predict(X_test_dat, freq_test_df, nregs, ml_model= mdn_grid_zipd, start_month= start_month, func_flag= func_flag)
+        mdn_freq_df.to_hdf('../sav_files/mdn_mon_fire_freq_%s'%run_id + '_it_%d'%it + '_%s'%bs + '_%s.h5'%str(p_frac), key= 'df', mode= 'w')
+
+        print('Saved monthly grid predictions at: mdn_mon_fire_freq_%s'%run_id + '_it_%d'%it + '_%s'%bs + '_%s.h5'%str(p_frac))
+    
+    elif func_flag == 'logistic':
+        dnn_grid_mod= tf.keras.models.load_model('../sav_files/grid_freq_runs_%s'%run_id + '/dnn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%it)
+        dnn_freq_df= grid_freq_predict(X_test_dat, freq_test_df, nregs, ml_model= dnn_grid_mod, start_month= start_month, func_flag= func_flag)
+        dnn_freq_df.to_hdf('../sav_files/dnn_mon_fire_freq_%s'%run_id + '_it_%d'%it + '_%s'%bs + '_%s.h5'%str(p_frac), key= 'df', mode= 'w')
+
+        print('Saved monthly grid predictions at: dnn_mon_fire_freq_%s'%run_id + '_it_%d'%it + '_%s'%bs + '_%s.h5'%str(p_frac))
+        
+
+def rescale_factor_model(ml_freq_groups, regindx, tot_months, test_start, test_tot, input_type= 'std', pred_type= 'std', regtype= 'polynomial'):
+    
+    # Uses a linear model to predict the std/mean of annual observed frequencies using mean annual predicted frequencies
+    
+    ann_arr= np.arange(0, tot_months + 1, 12)
+    ann_test_arr= np.arange(test_start, test_start + test_tot + 1, 12)
+    
+    pred_freqs_train= np.delete(np.array(ml_freq_groups.get_group(regindx)['pred_mean_freq']), np.arange(ann_test_arr[0]+1, ann_test_arr[-1])) #deleting elements corresponding to test years
+    obs_freqs_train= np.delete(np.array(ml_freq_groups.get_group(regindx)['obs_freq']), np.arange(ann_test_arr[0]+1, ann_test_arr[-1])) #test years may start arbitrarily but must be continuous in range
+    train_ind_arr= np.arange(0, len(pred_freqs_train), 12) #once test elements are removed, iterate over the new indices
+    
+    if input_type == 'std':
+        X_mat_train= np.array([np.std(pred_freqs_train[train_ind_arr[t]:train_ind_arr[t+1]]) \
+                        for t in range(len(train_ind_arr) - 1)])
+        X_mat= np.array([np.std(ml_freq_groups.get_group(regindx)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]) \
+                        for t in range(len(ann_arr) - 1)])
+    else:
+        X_mat_train= np.array([np.mean(pred_freqs_train[train_ind_arr[t]:train_ind_arr[t+1]]) \
+                        for t in range(len(train_ind_arr) - 1)])
+        X_mat= np.array([np.mean(ml_freq_groups.get_group(regindx)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]) \
+                        for t in range(len(ann_arr) - 1)])
+    
+    if pred_type == 'std':
+        Y_arr_train= np.array([np.std(obs_freqs_train[train_ind_arr[t]:train_ind_arr[t+1]]) \
+                        for t in range(len(train_ind_arr) - 1)])
+        Y_arr= np.array([np.std(ml_freq_groups.get_group(regindx)['obs_freq'][ann_arr[t]:ann_arr[t+1]]) \
+                        for t in range(len(ann_arr) - 1)])
+    else:
+        Y_arr_train= np.array([np.mean(obs_freqs_train[train_ind_arr[t]:train_ind_arr[t+1]]) \
+                        for t in range(len(train_ind_arr) - 1)])
+        Y_arr= np.array([np.mean(ml_freq_groups.get_group(regindx)['obs_freq'][ann_arr[t]:ann_arr[t+1]]) \
+                        for t in range(len(ann_arr) - 1)])
+        
+    if regtype == 'linear':
+        reg_pred= LinearRegression().fit(X_mat_train.reshape(-1, 1), Y_arr_train)
+        pred_norm= reg_pred.predict(X_mat.reshape(-1, 1))
+        r_pred= reg_pred.score(X_mat.reshape(-1, 1), Y_arr)
+    else:
+        if regtype == 'polynomial':
+            poly_feat= PolynomialFeatures(3)
+            ann_poly_x= poly_feat.fit_transform(X_mat.reshape(-1, 1))
+        elif regtype == 'spline':
+            spline_feat= SplineTransformer(degree= 3, n_knots= 5)
+            scaler= spline_feat.fit(X_mat_train.reshape(-1, 1))
+            ann_poly_x_train= scaler.transform(X_mat_train.reshape(-1, 1))
+            ann_poly_x= scaler.transform(X_mat.reshape(-1, 1))
+        
+        model= make_pipeline(SplineTransformer(n_knots= 5, degree= 3), LinearRegression())
+        reg_pred= model.fit(X_mat_train.reshape(-1, 1), Y_arr_train)
+        pred_norm= reg_pred.predict(X_mat.reshape(-1, 1))
+        r_pred= reg_pred.score(X_mat.reshape(-1, 1), Y_arr)
+    
+    return pred_norm, r_pred
+
+def grid_freq_metrics(ml_freq_df, n_regs, tot_months, test_start, test_tot):
+    
+    # Loads a data frame with grid scale fire frequencies and outputs the monthly and annual time series with two accuracy metrics 
+    
+    ml_freq_groups= ml_freq_df.groupby('reg_indx')
+    ann_arr= np.arange(0, tot_months + 1, 12)
+    
+    regtype_arr= ['linear', 'spline']
+    inp_type_arr= ['std', 'mean']
+    pred_type_arr= ['std', 'mean']
+    list_of_lists= []
+    acc_df= pd.DataFrame([])
+    
+    for r in tqdm(range(n_regs)):
+        for reg in regtype_arr:
+            for i in inp_type_arr:
+                for p in pred_type_arr:
+                    rfac_norm, r_pred= rescale_factor_model(ml_freq_groups, regindx= (r+1), tot_months= tot_months, test_start= test_start, test_tot= test_tot, input_type= i, pred_type= p, regtype= reg)
+                    norm_fac= []
+                    if p == 'std':
+                        for t in range(len(ann_arr) - 1):
+                            tmpnorm= rfac_norm[t]/np.ceil(np.std(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]))
+                            if np.isinf(tmpnorm):
+                                norm_fac.append(rfac_norm[t]/np.std(ml_freq_groups.get_group(r+1)['pred_mean_freq']))
+                            else:
+                                norm_fac.append(tmpnorm)
+                        pred_calib_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                        pred_calib_high2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_high_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                        pred_calib_low2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_low_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                        ann_pred_std_arr= np.asarray([np.sqrt(np.sum((((ml_freq_groups.get_group(r+1)['pred_high_2sig'] - \
+                                                            ml_freq_groups.get_group(r+1)['pred_low_2sig'])*norm_fac[t]/4)**2)[ann_arr[t]:ann_arr[t+1]])) for t in range(len(ann_arr) - 1)]) 
+                    else:
+                        for t in range(len(ann_arr) - 1):
+                            tmpnorm= rfac_norm[t]/np.ceil(np.mean(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]))
+                            if np.isinf(tmpnorm):
+                                norm_fac.append(rfac_norm[t]/np.mean(ml_freq_groups.get_group(r+1)['pred_mean_freq']))
+                            else:
+                                norm_fac.append(tmpnorm)
+                        pred_calib_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                        pred_calib_high2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_high_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                        pred_calib_low2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_low_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                        ann_pred_std_arr= np.asarray([np.sqrt(np.sum((((ml_freq_groups.get_group(r+1)['pred_high_2sig'] - \
+                                                            ml_freq_groups.get_group(r+1)['pred_low_2sig'])*norm_fac[t]/4)**2)[ann_arr[t]:ann_arr[t+1]])) for t in range(len(ann_arr) - 1)]) 
+                        
+                    obs_freqs_tot= np.array(ml_freq_groups.get_group(r+1)['obs_freq'])
+                    obs_freqs_test= np.array(ml_freq_groups.get_group(r+1)['obs_freq'])[test_start:(test_start + test_tot)]
+                    pred_freqs_test= pred_calib_arr[test_start:(test_start + test_tot)]
+                    pred_std_tot= (pred_calib_high2sig_arr - pred_calib_low2sig_arr)/4
+                    pred_std_test= pred_std_tot[test_start:(test_start + test_tot)]
+                    ann_pred_calib_arr= np.array([np.sum(pred_calib_arr[ann_arr[t]:ann_arr[t+1]]) for t in range(len(ann_arr) - 1)])
+                    ann_obs_freq_tot= np.array([np.sum(obs_freqs_tot[ann_arr[t]:ann_arr[t+1]]) for t in range(len(ann_arr) - 1)])
+                                        
+                    r_calib_tot= stats.pearsonr(obs_freqs_tot, pred_calib_arr)[0]
+                    r_calib_test= stats.pearsonr(obs_freqs_test, pred_freqs_test)[0]
+                    r_ann_calib_tot= stats.pearsonr(ann_obs_freq_tot, ann_pred_calib_arr)[0]
+                    
+                    errarr_tot= (pred_calib_arr - obs_freqs_tot)**2/pred_std_tot**2
+                    chisq_tot= np.sum(errarr_tot[np.isfinite(errarr_tot)])
+                    dof_tot= len(errarr_tot[np.isfinite(errarr_tot)])
+                    errarr_test= (pred_freqs_test - obs_freqs_test)**2/pred_std_test**2
+                    chisq_test= np.sum(errarr_test[np.isfinite(errarr_test)])
+                    dof_test= len(errarr_test[np.isfinite(errarr_test)])
+                    errarr_ann_tot= (ann_pred_calib_arr - ann_obs_freq_tot)**2/ann_pred_std_arr**2
+                    chisq_ann_tot= np.sum(errarr_ann_tot[np.isfinite(errarr_ann_tot)])
+                    dof_ann_tot= len(errarr_ann_tot[np.isfinite(errarr_ann_tot)])
+                    
+                    list_of_lists.append([r+1, reg, i, p, r_calib_tot, chisq_tot/dof_tot, r_calib_test, chisq_test/dof_test, r_ann_calib_tot, chisq_ann_tot/dof_ann_tot])
+    
+    acc_df= pd.DataFrame(list_of_lists, columns=["reg_indx", "Regression", "Input type", "Pred. type", "r_total", "red_chisq_total", "r_test", "red_chisq_test", "r_ann_total", "red_chisq_ann_total"])
+    return acc_df
