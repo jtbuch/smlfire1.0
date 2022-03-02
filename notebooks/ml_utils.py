@@ -1256,6 +1256,7 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
         
     param_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Trees", "Rebalance frac", "Threshold", "Train Accuracy", "Train Recall", \
                                                                                                                     "Test Accuracy", "Test Recall"])
+<<<<<<< HEAD
     return param_df
 
 
@@ -1264,16 +1265,31 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
 def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
                             dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
                             start_month= 372, test_tot_months= 60, ml_model= 'mdn', run_id= None):
+=======
+<<<<<<< HEAD
+    return param_df
+
+def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
+                            dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
+                            start_month= 372, run_id= None):
+>>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
     
     list_of_lists = []
     
     for it in tqdm(range(n_iters)):
         rseed= np.random.randint(1000)
         n_features= 36
+<<<<<<< HEAD
         end_month= start_month + test_tot_months
 
         fire_freq_test_df= clim_df[(clim_df.month >= start_month) & (clim_df.month < end_month)]
         fire_freq_train_df= clim_df.drop(fire_freq_test_df.index)
+=======
+        #start_month= 372
+
+        fire_freq_train_df= clim_df[clim_df.month < start_month].reset_index().drop(columns=['index'])
+        fire_freq_test_df= clim_df[clim_df.month >= start_month].reset_index().drop(columns=['index'])
+>>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
 
         tmp_freq_df= clim_df[clim_df.iloc[:, 0:n_features].columns] 
         X_freq_df= pd.DataFrame({})
@@ -1287,10 +1303,16 @@ def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096,
         X_train_df= X_freq_df.iloc[fire_freq_train_df.index].reset_index().drop(columns= dropcols)
         y_train_arr= np.array(fire_freq_train_df.fire_freq, dtype=np.float32)
 
+<<<<<<< HEAD
         X_test_df= X_freq_df.iloc[fire_freq_test_df.index]
         X_test_df.loc[:, 'reg_indx']= fire_freq_test_df.reg_indx
         X_test_df.loc[:, 'month']= fire_freq_test_df.month
         X_test_df= X_test_df.reset_index().drop(columns= dropcols)
+=======
+        X_test_df= X_freq_df.iloc[-len(fire_freq_test_df):].reset_index().drop(columns= dropcols)
+        X_test_df['reg_indx']= fire_freq_test_df.reg_indx
+        X_test_df['month']= fire_freq_test_df.month
+>>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
         y_test_arr= np.array(fire_freq_test_df.fire_freq)
 
         X_train, X_val, y_train, y_val= train_test_split(X_train_df, y_train_arr, test_size= 0.3, random_state= rseed)
@@ -1320,6 +1342,7 @@ def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096,
                 
                 tf.random.set_seed(rseed)
                 mon= EarlyStopping(monitor='val_loss', min_delta=0, patience= 5, verbose=0, mode='auto', restore_best_weights=True)
+<<<<<<< HEAD
                 if ml_model == 'mdn':
                     mdn= MDN_freq(layers= 2, neurons= 16)
                     mdn.compile(loss= zipd_loss, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[zipd_accuracy])
@@ -1486,3 +1509,20 @@ def grid_freq_metrics(ml_freq_df, n_regs, tot_months, test_start, test_tot):
     
     acc_df= pd.DataFrame(list_of_lists, columns=["reg_indx", "Regression", "Input type", "Pred. type", "r_total", "red_chisq_total", "r_test", "red_chisq_test", "r_ann_total", "red_chisq_ann_total"])
     return acc_df
+=======
+                mdn= MDN_freq(layers= 2, neurons= 16)
+                mdn.compile(loss= zipd_loss, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[zipd_accuracy])
+                h_mdn= mdn.fit(resampled_ds, steps_per_epoch= 32, epochs= 500, validation_data= val_ds, callbacks= [mon], verbose= 0) # sample_weight= freq_samp_weight_arr #callbacks= [mon],
+                print("MDN trained for %d epochs"%len(h_mdn.history['loss']))
+                
+                mdn.save('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
+                
+                list_of_lists.append([it+1, bs, p_frac, len(h_mdn.history['loss']), np.nanmean(h_mdn.history['val_zipd_accuracy'])])
+    
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy"])
+    
+    return hp_df
+=======
+    return param_df
+>>>>>>> dc56dce84cbb56b14b611ac921b0bfca3351813f
+>>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
