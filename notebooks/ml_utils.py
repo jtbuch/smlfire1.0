@@ -23,7 +23,7 @@ import cartopy.feature as cfeature # to add features to a cartopy map
 import cartopy.io.shapereader as shpreader
 
 #self-libraries
-from fire_utils import ncdump, coord_transform, bailey_ecoprovince_shp, bailey_ecoprovince_mask, update_reg_indx, mon_fire_freq, mon_burned_area, tindx_func, clim_pred_var  
+from fire_utils import ncdump, coord_transform, bailey_ecoprovince_shp, bailey_ecoprovince_mask, update_reg_indx, mon_fire_freq, mon_burned_area, tindx_func, clim_pred_var, init_eff_clim_fire_df 
 from stats_utils import uni_lsq_regression_model, multi_regression_model
 
 #Helper functions
@@ -900,13 +900,19 @@ def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, 
 
 ## ----------------------------------------------------------------- Fire size functions ----------------------------------------------------------------------------
 
-def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH']):
+def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60):
     
     # Returns the train/val/test data for fire sizes given a grid resolution
     
-    data_dir= '../data/'
-    fire_size_train= pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
-    fire_size_test= pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
+    clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
+    fire_size_train= init_eff_clim_fire_df(clim_fire_gdf, start_month, tot_test_months) #pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
+        
+    final_month= start_month + tot_test_months
+    testfiregroups= clim_fire_gdf[(clim_fire_gdf['fire_month'] >= start_month) & (clim_fire_gdf['fire_month'] < final_month)].groupby('fire_indx')
+    testdf= pd.DataFrame({})
+    for k in tqdm(testfiregroups.groups.keys()):
+        testdf= testdf.append(testfiregroups.get_group(k).loc[[testfiregroups.get_group(k)['cell_frac'].idxmax()]]) #replace with topographical origin instead
+    fire_size_test= testdf.reset_index().drop(columns= ['index', 'cell_frac']) #pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
     
     fire_size_df= pd.concat([fire_size_train, fire_size_test], axis= 0)
     tmp_size_df= fire_size_df[fire_size_df.iloc[:, 7:].columns]
@@ -914,16 +920,16 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
     scaler=  StandardScaler().fit(fire_size_train.iloc[:, 7:])
     X_size_df[tmp_size_df.columns]= scaler.transform(tmp_size_df) 
 
-    X_size_train_df= X_size_df.iloc[0:len(fire_size_train)].drop(columns= dropcols) 
+    X_size_train_df= X_size_df.iloc[fire_size_train.index].drop(columns= dropcols) 
     y_size_train= np.array(fire_size_train.fire_size/1e6, dtype=np.float32) #1e6 converts from m^2 to km^2
 
-    X_sizes_test= X_size_df.iloc[-len(fire_size_test):].drop(columns= dropcols) 
+    X_sizes_test= X_size_df.iloc[fire_size_test.index].drop(columns= dropcols) 
     y_sizes_test= np.array(fire_size_test.fire_size/1e6, dtype=np.float32)
 
     #splitting only the training data set
     X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val = train_test_split(X_size_train_df, y_size_train, test_size=0.2, random_state=99)
     
-    return X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test
+    return X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test, scaler
 
 
 def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr, sum_size_arr, ncomps= 2, freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
@@ -1256,7 +1262,6 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
         
     param_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Trees", "Rebalance frac", "Threshold", "Train Accuracy", "Train Recall", \
                                                                                                                     "Test Accuracy", "Test Recall"])
-<<<<<<< HEAD
     return param_df
 
 
@@ -1264,32 +1269,19 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
 
 def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
                             dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
-                            start_month= 372, test_tot_months= 60, ml_model= 'mdn', run_id= None):
-=======
-<<<<<<< HEAD
-    return param_df
-
-def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
-                            dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
-                            start_month= 372, run_id= None):
->>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
+                            start_month= 372, test_tot_months= 60, ml_model= 'mdn', loro_ind= None, run_id= None):
     
     list_of_lists = []
     
     for it in tqdm(range(n_iters)):
         rseed= np.random.randint(1000)
         n_features= 36
-<<<<<<< HEAD
         end_month= start_month + test_tot_months
 
         fire_freq_test_df= clim_df[(clim_df.month >= start_month) & (clim_df.month < end_month)]
         fire_freq_train_df= clim_df.drop(fire_freq_test_df.index)
-=======
-        #start_month= 372
-
-        fire_freq_train_df= clim_df[clim_df.month < start_month].reset_index().drop(columns=['index'])
-        fire_freq_test_df= clim_df[clim_df.month >= start_month].reset_index().drop(columns=['index'])
->>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
+        if loro_ind != None:
+            fire_freq_train_df[fire_freq_train_df != loro_ind]
 
         tmp_freq_df= clim_df[clim_df.iloc[:, 0:n_features].columns] 
         X_freq_df= pd.DataFrame({})
@@ -1303,16 +1295,10 @@ def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096,
         X_train_df= X_freq_df.iloc[fire_freq_train_df.index].reset_index().drop(columns= dropcols)
         y_train_arr= np.array(fire_freq_train_df.fire_freq, dtype=np.float32)
 
-<<<<<<< HEAD
         X_test_df= X_freq_df.iloc[fire_freq_test_df.index]
         X_test_df.loc[:, 'reg_indx']= fire_freq_test_df.reg_indx
         X_test_df.loc[:, 'month']= fire_freq_test_df.month
         X_test_df= X_test_df.reset_index().drop(columns= dropcols)
-=======
-        X_test_df= X_freq_df.iloc[-len(fire_freq_test_df):].reset_index().drop(columns= dropcols)
-        X_test_df['reg_indx']= fire_freq_test_df.reg_indx
-        X_test_df['month']= fire_freq_test_df.month
->>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
         y_test_arr= np.array(fire_freq_test_df.fire_freq)
 
         X_train, X_val, y_train, y_val= train_test_split(X_train_df, y_train_arr, test_size= 0.3, random_state= rseed)
@@ -1342,7 +1328,6 @@ def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096,
                 
                 tf.random.set_seed(rseed)
                 mon= EarlyStopping(monitor='val_loss', min_delta=0, patience= 5, verbose=0, mode='auto', restore_best_weights=True)
-<<<<<<< HEAD
                 if ml_model == 'mdn':
                     mdn= MDN_freq(layers= 2, neurons= 16)
                     mdn.compile(loss= zipd_loss, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[zipd_accuracy])
@@ -1509,20 +1494,149 @@ def grid_freq_metrics(ml_freq_df, n_regs, tot_months, test_start, test_tot):
     
     acc_df= pd.DataFrame(list_of_lists, columns=["reg_indx", "Regression", "Input type", "Pred. type", "r_total", "red_chisq_total", "r_test", "red_chisq_test", "r_ann_total", "red_chisq_ann_total"])
     return acc_df
-=======
-                mdn= MDN_freq(layers= 2, neurons= 16)
-                mdn.compile(loss= zipd_loss, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[zipd_accuracy])
-                h_mdn= mdn.fit(resampled_ds, steps_per_epoch= 32, epochs= 500, validation_data= val_ds, callbacks= [mon], verbose= 0) # sample_weight= freq_samp_weight_arr #callbacks= [mon],
-                print("MDN trained for %d epochs"%len(h_mdn.history['loss']))
-                
-                mdn.save('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
-                
-                list_of_lists.append([it+1, bs, p_frac, len(h_mdn.history['loss']), np.nanmean(h_mdn.history['val_zipd_accuracy'])])
+
+def grid_freq_predict(X_test_dat, freq_test_df, n_regs, ml_model, start_month, final_month= 432, func_flag= 'zipd'):
     
-    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy"])
+    # Predicts the grid scale fire frequency for each L3 ecoregion
     
-    return hp_df
-=======
-    return param_df
->>>>>>> dc56dce84cbb56b14b611ac921b0bfca3351813f
->>>>>>> aebfd49b70e1be8a4d5a100f8a39720bd396e2af
+    tot_months= final_month - start_month
+    tot_rfac_arr= []
+    ml_freq_df= pd.DataFrame([])
+    
+    for r in tqdm(range(n_regs)):
+        pred_freq= []
+        pred_freq_sig= []
+        freq_arr= []
+        for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
+            X_arr= np.array(X_test_dat.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).drop(columns= ['reg_indx', 'month']), dtype= np.float32)
+            if func_flag == 'zipd':
+                param_vec= ml_model.predict(x= tf.constant(X_arr))
+                freq_samp= zipd_model(param_vec).sample(10000, seed= 99)
+                pred_freq.append(tf.reduce_sum(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)).numpy())
+                pred_freq_sig.append(np.sqrt(tf.reduce_sum(tf.pow(tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64), 2)).numpy()).astype(np.int64))
+                
+                freq_arr.append(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64).numpy())
+            
+            elif func_flag == 'logistic':
+                reg_predictions= ml_model.predict(x= tf.constant(X_arr)).flatten()
+                freq_arr.append([1 if p > 0.5 else 0 for p in reg_predictions])
+                pred_freq.append(np.sum([1 if p > 0.5 else 0 for p in reg_predictions]))
+        
+        obs_freqs= [np.sum(freq_test_df.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).fire_freq) \
+                                                                          for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64)]
+        tot_rfac_arr.append((np.std(obs_freqs)/np.std(pred_freq)))
+        pred_freq_arr= [np.sum(freq_arr[m - start_month]) for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64)]
+        reg_indx_arr= np.ones(tot_months, dtype= np.int64)*(r+1)
+        
+        if func_flag == 'zipd':
+            pred_high_2sig= np.ceil((np.array(pred_freq) + 2*np.array(pred_freq_sig)))
+            pred_low= np.array(pred_freq) - 2*np.array(pred_freq_sig)
+            pred_low[pred_low < 0]= 0
+            pred_low_2sig= np.floor(pred_low)
+
+            ml_freq_df= ml_freq_df.append(pd.DataFrame({'obs_freq': obs_freqs, 'pred_mean_freq': pred_freq_arr, 'pred_high_2sig': pred_high_2sig, 'pred_low_2sig': pred_low_2sig, \
+                                                                                                                                  'reg_indx': reg_indx_arr}))
+        if func_flag == 'logistic':
+            ml_freq_df= ml_freq_df.append(pd.DataFrame({'obs_freq': obs_freqs, 'pred_mean_freq': pred_freq_arr, 'reg_indx': reg_indx_arr}))
+            
+    return ml_freq_df, tot_rfac_arr
+
+def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_model= 'mdn', debug= False, regindx= None, arg_arr= None):
+    
+    # returns the calibrated predicted frequencies with a rescaled factor optimized for both monthly and annual metrics
+    
+    ml_freq_groups= ml_freq_df.groupby('reg_indx')
+    ann_arr= np.arange(0, tot_months + 1, 12)
+    pred_mon_freq_df= pd.DataFrame([])
+    pred_ann_freq_df= pd.DataFrame([])
+    
+    if debug:
+        norm_fac= []
+        reg, inp, pred= arg_arr
+        rfac_norm, r_pred= rescale_factor_model(ml_freq_groups, regindx= regindx, tot_months= tot_months, test_start= test_start, test_tot= test_tot, input_type= inp, pred_type= pred, regtype= reg)
+
+        if pred == 'mean':
+            for t in range(len(ann_arr) - 1):
+                tmpnorm= rfac_norm[t]/np.ceil(np.mean(ml_freq_groups.get_group(regindx)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]))
+                if np.isinf(tmpnorm):
+                    norm_fac.append(rfac_norm[t]/np.mean(ml_freq_groups.get_group(regindx)['pred_mean_freq']))
+                else:
+                    norm_fac.append(tmpnorm)
+        else:
+            for t in range(len(ann_arr) - 1):
+                tmpnorm= rfac_norm[t]/np.ceil(np.std(ml_freq_groups.get_group(regindx)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]))
+                if np.isinf(tmpnorm):
+                    norm_fac.append(rfac_norm[t]/np.std(ml_freq_groups.get_group(regindx)['pred_mean_freq']))
+                else:
+                    norm_fac.append(tmpnorm)
+
+        pred_calib_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(regindx)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+        ann_pred_calib_arr= [np.sum(pred_calib_arr[ann_arr[t]:ann_arr[t+1]]) for t in range(len(ann_arr) - 1)]
+        ann_obs_freq_arr= [np.sum(ml_freq_groups.get_group(regindx)['obs_freq'][ann_arr[t]:ann_arr[t+1]]) for t in range(len(ann_arr) - 1)]
+
+        mon_reg_indx_arr= np.ones(tot_months, dtype= np.int64)*(regindx)
+        ann_reg_indx_arr= np.ones(len(ann_arr[1:]), dtype= np.int64)*(regindx)
+
+        if ml_model == 'mdn':
+            pred_calib_high2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(regindx)['pred_high_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+            pred_calib_low2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(regindx)['pred_low_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+
+            ann_pred_std_arr= np.asarray([np.sqrt(np.sum((((ml_freq_groups.get_group(regindx)['pred_high_2sig'] - \
+                                                                ml_freq_groups.get_group(regindx)['pred_low_2sig'])*norm_fac[t]/4)**2)[ann_arr[t]:ann_arr[t+1]])) for t in range(len(ann_arr) - 1)])
+
+            pred_mon_freq_df= pred_mon_freq_df.append(pd.DataFrame({'obs_freq': ml_freq_groups.get_group(regindx)['obs_freq'], 'pred_mean_freq': pred_calib_arr, 'pred_high_2sig': pred_calib_high2sig_arr, \
+                                                                        'pred_low_2sig': pred_calib_low2sig_arr, 'reg_indx': mon_reg_indx_arr}))
+            pred_ann_freq_df= pred_ann_freq_df.append(pd.DataFrame({'obs_freq': ann_obs_freq_arr, 'pred_mean_freq': ann_pred_calib_arr, 'pred_high_2sig': (ann_pred_calib_arr + 2*ann_pred_std_arr), \
+                                                                        'pred_low_2sig': (ann_pred_calib_arr - 2*ann_pred_std_arr), 'reg_indx': ann_reg_indx_arr}))
+        elif ml_model == 'dnn':
+            pred_mon_freq_df= pred_mon_freq_df.append(pd.DataFrame({'obs_freq': ml_freq_groups.get_group(regindx)['obs_freq'], 'pred_mean_freq': pred_calib_arr, 'reg_indx': mon_reg_indx_arr}))
+            pred_ann_freq_df= pred_ann_freq_df.append(pd.DataFrame({'obs_freq': ann_obs_freq_arr, 'pred_mean_freq': ann_pred_calib_arr, 'reg_indx': ann_reg_indx_arr}))
+
+        return pred_mon_freq_df, pred_ann_freq_df
+    
+    else:
+        ml_acc_df= grid_freq_metrics(ml_freq_df= ml_freq_df, n_regs= n_regs, tot_months= tot_months, test_start= test_start, test_tot= test_tot)
+        ml_acc_df['tot_metric']= ml_acc_df['r_total']*ml_acc_df['r_ann_total']/(ml_acc_df['red_chisq_total'] + ml_acc_df['red_chisq_ann_total'])
+        for r in tqdm(range(n_regs)):
+            norm_fac= []
+            reg, inp, pred= ml_acc_df.groupby('reg_indx').get_group(r+1).sort_values(by= ['tot_metric'], ascending= False).iloc[[0]][['Regression', 'Input type', 'Pred. type']].to_numpy()[0]
+            rfac_norm, r_pred= rescale_factor_model(ml_freq_groups, regindx= r+1, tot_months= tot_months, test_start= test_start, test_tot= test_tot, input_type= inp, pred_type= pred, regtype= reg)
+
+            if pred == 'mean':
+                for t in range(len(ann_arr) - 1):
+                    tmpnorm= rfac_norm[t]/np.ceil(np.mean(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]))
+                    if np.isinf(tmpnorm):
+                        norm_fac.append(rfac_norm[t]/np.mean(ml_freq_groups.get_group(r+1)['pred_mean_freq']))
+                    else:
+                        norm_fac.append(tmpnorm)
+            else:
+                for t in range(len(ann_arr) - 1):
+                    tmpnorm= rfac_norm[t]/np.ceil(np.std(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]]))
+                    if np.isinf(tmpnorm):
+                        norm_fac.append(rfac_norm[t]/np.std(ml_freq_groups.get_group(r+1)['pred_mean_freq']))
+                    else:
+                        norm_fac.append(tmpnorm)
+
+            pred_calib_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_mean_freq'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+            ann_pred_calib_arr= [np.sum(pred_calib_arr[ann_arr[t]:ann_arr[t+1]]) for t in range(len(ann_arr) - 1)]
+            ann_obs_freq_arr= [np.sum(ml_freq_groups.get_group(r+1)['obs_freq'][ann_arr[t]:ann_arr[t+1]]) for t in range(len(ann_arr) - 1)]
+
+            mon_reg_indx_arr= np.ones(tot_months, dtype= np.int64)*(r+1)
+            ann_reg_indx_arr= np.ones(len(ann_arr[1:]), dtype= np.int64)*(r+1)
+
+            if ml_model == 'mdn':
+                pred_calib_high2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_high_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+                pred_calib_low2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(r+1)['pred_low_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
+
+                ann_pred_std_arr= np.asarray([np.sqrt(np.sum((((ml_freq_groups.get_group(r+1)['pred_high_2sig'] - \
+                                                                ml_freq_groups.get_group(r+1)['pred_low_2sig'])*norm_fac[t]/4)**2)[ann_arr[t]:ann_arr[t+1]])) for t in range(len(ann_arr) - 1)])
+
+                pred_mon_freq_df= pred_mon_freq_df.append(pd.DataFrame({'obs_freq': ml_freq_groups.get_group(r+1)['obs_freq'], 'pred_mean_freq': pred_calib_arr, 'pred_high_2sig': pred_calib_high2sig_arr, \
+                                                                        'pred_low_2sig': pred_calib_low2sig_arr, 'reg_indx': mon_reg_indx_arr}))
+                pred_ann_freq_df= pred_ann_freq_df.append(pd.DataFrame({'obs_freq': ann_obs_freq_arr, 'pred_mean_freq': ann_pred_calib_arr, 'pred_high_2sig': (ann_pred_calib_arr + 2*ann_pred_std_arr), \
+                                                                        'pred_low_2sig': (ann_pred_calib_arr - 2*ann_pred_std_arr), 'reg_indx': ann_reg_indx_arr}))
+            elif ml_model == 'dnn':
+                pred_mon_freq_df= pred_mon_freq_df.append(pd.DataFrame({'obs_freq': ml_freq_groups.get_group(r+1)['obs_freq'], 'pred_mean_freq': pred_calib_arr, 'reg_indx': mon_reg_indx_arr}))
+                pred_ann_freq_df= pred_ann_freq_df.append(pd.DataFrame({'obs_freq': ann_obs_freq_arr, 'pred_mean_freq': ann_pred_calib_arr, 'reg_indx': ann_reg_indx_arr}))
+
+        return pred_mon_freq_df, pred_ann_freq_df

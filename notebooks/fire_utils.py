@@ -248,7 +248,7 @@ def update_reg_indx(firegdf, lflag = 'L3'):
     
     if lflag == 'L3':
         tmp_reg_indx_arr= np.zeros(len(firegdf), dtype= int)
-        for i in np.linspace(1, len(regname), len(regname), dtype= int):
+        for i in tqdm(np.linspace(1, len(regname), len(regname), dtype= int)):
             tmplocarr= reg_indx_func(regname[i], firegdf, lflag)
             np.add.at(tmp_reg_indx_arr, tmplocarr, i)
 
@@ -928,11 +928,13 @@ def file_io_func(firefile= None, firedf= None, lflag= 'L4', fflag= 'freq', io_fl
         tmpdf= tmpdf.dropna().reset_index().drop(columns=['index'])
         tmpdf.to_hdf('../data/clim_%s'%lflag + '_fire_%s'%fflag + '_data.h5', key= 'df', mode= 'w')
         
-def init_eff_clim_fire_df(firegdf, final_month= 372):
+def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60):
     
     # creates a dataframe of 'effective' climate through a weighted average of burned area weighted grid cells
     
-    firegdf= firegdf[firegdf['fire_month'] < final_month]
+    final_month= start_month + tot_test_months
+    firetestgdf= firegdf[(firegdf['fire_month'] >= start_month)&(firegdf['fire_month'] < final_month)]
+    firegdf= firegdf.drop(firetestgdf.index)
     firegroups= firegdf.groupby('fire_indx')
     
     newdf= firegdf.iloc[:, 0:8] # the first 8 columns contain geometry information 
@@ -975,7 +977,7 @@ def init_clim_fire_grid(res= '12km', start_year= 1984, final_year= 2019):
     for i in tqdm(range(len(pred_flabel_arr))): 
         pred_var= pred_flabel_arr[i+1][0]
         seas_var= pred_flabel_arr[i+1][1]
-        if pred_sindx_arr[seas_var] in [2, 5, 6, 7, 8, 9]:
+        if pred_sindx_arr[seas_var] in [2, 5, 6, 7, 8, 9]: #variables whose antecedent characteristics are important
             gdf_var= pred_flabel_arr[i+1][2]
         else:
             gdf_var= pred_var
@@ -1007,7 +1009,7 @@ def init_clim_fire_grid(res= '12km', start_year= 1984, final_year= 2019):
                         Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
                         time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
 
-        var_df= var_arr.to_dataframe(name= gdf_var).dropna().reset_index()
+        var_df= var_arr.to_dataframe(name= gdf_var).reset_index() #.dropna()
         clim_fire_df= pd.concat([clim_fire_df, var_df[gdf_var]], axis= 1)
         
     return clim_fire_df
