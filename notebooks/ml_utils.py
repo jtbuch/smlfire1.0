@@ -1497,7 +1497,7 @@ def grid_freq_metrics(ml_freq_df, n_regs, tot_months, test_start, test_tot):
 
 def grid_freq_predict(X_test_dat, freq_test_df, n_regs, ml_model, start_month, final_month= 432, func_flag= 'zipd'):
     
-    # Predicts the grid scale fire frequency for each L3 ecoregion
+    # Predicts the fire frequency for each L3 ecoregion
     
     tot_months= final_month - start_month
     tot_rfac_arr= []
@@ -1640,3 +1640,80 @@ def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_
                 pred_ann_freq_df= pred_ann_freq_df.append(pd.DataFrame({'obs_freq': ann_obs_freq_arr, 'pred_mean_freq': ann_pred_calib_arr, 'reg_indx': ann_reg_indx_arr}))
 
         return pred_mon_freq_df, pred_ann_freq_df
+    
+def grid_freq_loc_predict(X_test_dat, n_regs, ml_model, start_month, final_month= 432, func_flag= 'zipd', rseed= None):
+    
+    # Predicts the grid scale location of fire frequencies/probabilites for each L3 ecoregion
+    
+    if rseed == None:
+        rseed= np.random.randint(1000)
+        
+    tot_months= final_month - start_month
+    freq_df= pd.DataFrame([])
+    
+    for r in tqdm(range(n_regs)): #range(n_regs)
+        pred_freq= []
+        pred_freq_sig= []
+        freq_arr= []
+        for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
+            X_arr= np.array(X_test_dat.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).dropna().drop(columns= ['reg_indx', 'month']), dtype= np.float32)
+            if func_flag == 'zipd':
+                param_vec= ml_model.predict(x= tf.constant(X_arr))
+                freq_samp= zipd_model(param_vec).sample(10000, seed= rseed)
+                freq_arr.append(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64).numpy()) #associate climate grid index
+            
+            elif func_flag == 'logistic':
+                reg_predictions= ml_model.predict(x= tf.constant(X_arr)).flatten()
+                freq_arr.append([1 if p > 0.5 else 0 for p in reg_predictions])
+        
+        mon_reg_indx_arr= np.ones(tot_months, dtype= np.int64)*(r+1)
+        freq_df= freq_df.append(pd.DataFrame({'freq_arr': freq_arr, 'reg_indx': mon_reg_indx_arr}))
+        
+    return freq_df
+
+def fire_loc_func(loc_df, ml_freq_df, X_test_dat, regindx, start_month, final_month= 432):
+    
+    # Predicts the grid scale location of fire frequencies/probabilites for each L3 ecoregion
+    
+    tot_months= final_month - start_month
+    ml_freq_groups= ml_freq_df.groupby('reg_indx') 
+    fire_loc_arr= []
+    
+    for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
+        if not np.nonzero(loc_df.groupby('reg_indx').get_group(regindx)['freq_arr'].loc[[m - start_month]].to_numpy()[0])[0].size:
+            fire_loc_arr.append(np.array([0]))
+        else:
+            indarr= np.random.choice(np.nonzero(loc_df.groupby('reg_indx').get_group(regindx)['freq_arr'].loc[[m - start_month]].to_numpy()[0])[0], \
+                                     ml_freq_groups.get_group(regindx)['pred_mean_freq'].loc[[m]].to_numpy()[0].astype(int))
+            fire_loc_arr.append(X_test_dat.groupby('reg_indx').get_group(regindx).groupby('month').get_group(m).index.to_numpy()[indarr])
+    
+    return fire_loc_arr
+
+def fire_loc_func_obs(size_test_df, regindx, start_month, final_month= 432):
+    
+    #note the outputs are indices in the size_test_df data frame, not the grid cells in a particular month as in the previous case
+    
+    tot_months= final_month - start_month
+    reg_ind_groups= size_test_df[['fire_size', 'fire_month', 'reg_indx']].groupby('reg_indx').get_group(regindx).groupby('fire_month')
+    fire_loc_arr= []
+    
+    for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
+        try:
+            indarr= reg_ind_groups.get_group(m).index.to_numpy()
+            fire_loc_arr.append(indarr)
+        except KeyError:
+            fire_loc_arr.append(np.array([0]))
+    
+    return fire_loc_arr
+
+def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_month= 432):
+    
+    # Returns an array of grid indices corresponding to predicted frequencies
+    
+    pred_loc_arr= []
+    for r in tqdm(range(n_regs)): #range(n_regs)
+        tmplocarr= fire_loc_func(loc_df, ml_freq_df, X_test_dat, regindx= r+1, start_month= start_month, final_month= final_month)
+        tmplocarr= np.hstack(tmplocarr)
+        pred_loc_arr.append(tmplocarr[tmplocarr != 0])
+
+    return pred_loc_arr
