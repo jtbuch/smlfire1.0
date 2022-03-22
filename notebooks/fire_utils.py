@@ -952,7 +952,7 @@ def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60):
     
     return newdf
 
-def init_clim_fire_grid(res= '12km', start_year= 1984, final_year= 2019):
+def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019):
     
     # Initializes a dataframe with climate and fire frequency information at each grid point
     
@@ -993,21 +993,35 @@ def init_clim_fire_grid(res= '12km', start_year= 1984, final_year= 2019):
             clim_var_arr= clim_var_data
         elif res == '1km':
             print("There is no climate functionality for this resolution currently!")
-        
-        if seas_var == 'static':
-            var_arr= xarray.DataArray(data= np.tile(clim_var_arr, (tot_months, 1, 1)),
-                        dims=["time", "Y", "X"],
-                        coords=dict(
-                        X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
-                        Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
-                        time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
-        else:
-            var_arr= xarray.DataArray(data= clim_var_arr,
-                        dims=["time", "Y", "X"],
-                        coords=dict(
-                        X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
-                        Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
-                        time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
+       
+        if tscale == 'monthly':
+            if seas_var == 'static':
+                var_arr= xarray.DataArray(data= np.tile(clim_var_arr, (tot_months, 1, 1)),
+                            dims=["time", "Y", "X"],
+                            coords=dict(
+                            X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                            Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
+                            time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
+            else:
+                var_arr= xarray.DataArray(data= clim_var_arr,
+                            dims=["time", "Y", "X"],
+                            coords=dict(
+                            X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                            Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
+                            time= (["time"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
+        elif tscale == 'longterm':
+            if seas_var == 'static':
+                var_arr= xarray.DataArray(data= clim_var_arr,
+                            dims=["Y", "X"],
+                            coords=dict(
+                            X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                            Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),),)
+            else:
+                var_arr= xarray.DataArray(data= np.nanmean(clim_var_arr, axis= 0),
+                            dims=["Y", "X"],
+                            coords=dict(
+                            X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                            Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),),)
 
         var_df= var_arr.to_dataframe(name= gdf_var).reset_index() #.dropna()
         clim_fire_df= pd.concat([clim_fire_df, var_df[gdf_var]], axis= 1)
