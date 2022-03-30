@@ -199,6 +199,58 @@ def lognorm_accuracy(y, parameter_vector):
     
     return(100 - tf.abs(err))
 
+def lognorm_gpd_model(parameter_vector):
+    
+    alpha, scale, shape= tf.split(parameter_vector, 3, axis= 1)
+    mu_lognorm, scale_gpd= tf.split(scale, 2, axis= 1)
+    sigma_lognorm, shape_gpd= tf.split(shape, 2, axis= 1)
+    
+    xmin= 0 #threshold burned area in km^2
+    loc_arr= tf.ones_like(scale_gpd)*xmin
+    
+    lognorm_gpd_mix= tfd.Mixture(
+    cat=tfd.Categorical(probs= alpha),
+    components=[tfd.LogNormal(loc= tf.squeeze(mu_lognorm), scale= tf.squeeze(sigma_lognorm)), 
+                tfd.GeneralizedPareto(loc= tf.squeeze(loc_arr), scale= tf.squeeze(scale_gpd), concentration= tf.squeeze(shape_gpd)),])
+    
+    return lognorm_gpd_mix
+
+def lognorm_gpd_model_predict(parameter_vector):
+    
+    alpha, scale, shape= tf.split(parameter_vector, 3, axis= 1)
+    mu_lognorm, scale_gpd= tf.split(scale, 2, axis= 1)
+    sigma_lognorm, shape_gpd= tf.split(shape, 2, axis= 1)
+    
+    xmin= 0 #threshold burned area in km^2
+    loc_arr= tf.ones_like(scale_gpd)*xmin
+    
+    lognorm_gpd_mix= tfd.Mixture(
+    cat=tfd.Categorical(probs= tf.squeeze(alpha)),
+    components=[tfd.LogNormal(loc= tf.squeeze(mu_lognorm), scale= tf.squeeze(sigma_lognorm)), 
+                tfd.GeneralizedPareto(loc= tf.squeeze(loc_arr), scale= tf.squeeze(scale_gpd), concentration= tf.squeeze(shape_gpd)),])
+    
+    return lognorm_gpd_mix
+
+def lognorm_gpd_loss(y, parameter_vector):
+    
+    lognorm_gpd_mix= lognorm_gpd_model(parameter_vector)
+    log_likelihood= lognorm_gpd_mix.log_prob(tf.transpose(y))
+
+    return(-tf.reduce_mean(log_likelihood, axis= -1))
+
+def lognorm_gpd_accuracy(y, parameter_vector):
+    
+    lognorm_gpd_mix= lognorm_gpd_model(parameter_vector)
+    cdf_mod= lognorm_gpd_mix.cdf(tf.transpose(y))
+    
+    empcdf= tfd.Empirical(tf.transpose(y))
+    cdf_emp= empcdf.cdf(tf.transpose(y))
+    
+    err= 100 * (-tf.reduce_mean(tf.math.log(cdf_mod/cdf_emp), axis= -1))
+    #print(err.shape)
+    
+    return(100 - tf.abs(err))
+
 class SeqBlock(tf.keras.layers.Layer):
     
     def __init__(self, hidden_l= 2, n_neurs=100, initializer= "glorot_uniform", reg= False, regrate= None, dropout= False):
@@ -900,14 +952,21 @@ def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, 
 
 ## ----------------------------------------------------------------- Fire size functions ----------------------------------------------------------------------------
 
-def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60):
+def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, scaled= False, rseed= None):
     
     # Returns the train/val/test data for fire sizes given a grid resolution
     
-    clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
+    final_month= start_month + tot_test_months
+    if rseed == None:
+        rseed= np.random.randint(1000)
+    
+    if scaled:
+        clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
+    else:
+        clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
+    
     fire_size_train= init_eff_clim_fire_df(clim_fire_gdf, start_month, tot_test_months) #pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
         
-    final_month= start_month + tot_test_months
     testfiregroups= clim_fire_gdf[(clim_fire_gdf['fire_month'] >= start_month) & (clim_fire_gdf['fire_month'] < final_month)].groupby('fire_indx')
     testdf= pd.DataFrame({})
     for k in tqdm(testfiregroups.groups.keys()):
@@ -915,21 +974,29 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
     fire_size_test= testdf.reset_index().drop(columns= ['index', 'cell_frac']) #pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
     
     fire_size_df= pd.concat([fire_size_train, fire_size_test], axis= 0)
-    tmp_size_df= fire_size_df[fire_size_df.iloc[:, 7:].columns]
-    X_size_df= pd.DataFrame({})
-    scaler=  StandardScaler().fit(fire_size_train.iloc[:, 7:])
-    X_size_df[tmp_size_df.columns]= scaler.transform(tmp_size_df) 
+    
+    if scaled:
+        X_size_train_df= fire_size_train.iloc[:, 7:].drop(columns= dropcols) 
+        X_sizes_test= fire_size_test.iloc[:, 7:].drop(columns= dropcols)
+    else:
+        tmp_size_df= fire_size_df[fire_size_df.iloc[:, 7:].columns]
+        X_size_df= pd.DataFrame({})
+        scaler=  StandardScaler().fit(fire_size_train.iloc[:, 7:])
+        X_size_df[tmp_size_df.columns]= scaler.transform(tmp_size_df) 
 
-    X_size_train_df= X_size_df.iloc[fire_size_train.index].drop(columns= dropcols) 
+        X_size_train_df= X_size_df.iloc[fire_size_train.index].drop(columns= dropcols) 
+        X_sizes_test= X_size_df.iloc[fire_size_test.index].drop(columns= dropcols) 
+
     y_size_train= np.array(fire_size_train.fire_size/1e6, dtype=np.float32) #1e6 converts from m^2 to km^2
-
-    X_sizes_test= X_size_df.iloc[fire_size_test.index].drop(columns= dropcols) 
     y_sizes_test= np.array(fire_size_test.fire_size/1e6, dtype=np.float32)
 
     #splitting only the training data set
-    X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val = train_test_split(X_size_train_df, y_size_train, test_size=0.2, random_state=99)
+    X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val = train_test_split(X_size_train_df, y_size_train, test_size=0.2, random_state= rseed)
     
-    return X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test, scaler
+    if scaled:
+        return X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test
+    else:
+        return X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test, scaler
 
 
 def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr, sum_size_arr, ncomps= 2, freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
@@ -1081,6 +1148,12 @@ def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test
         stat_model= lognorm_model
         loss_func= lognorm_loss
         acc_func= lognorm_accuracy
+    
+    elif func_flag == 'lognorm_gpd':
+        n_layers, n_neurons, n_comps= lnc_arr     
+        stat_model= lognorm_gpd_model
+        loss_func= lognorm_gpd_loss
+        acc_func= lognorm_gpd_accuracy
     
     print("Initialized a MDN with %d layers"%n_layers + " and %d neurons"%n_neurons)
 
@@ -1718,7 +1791,7 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 
     return pred_loc_arr
 
-def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', \
+def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', nsamps= 10000, \
                                             loc_df= None, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
                                             debug= False, regindx= None, seed= None):
     
@@ -1759,7 +1832,7 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
     
         for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
             mindx= m - start_month
-            samp_arr= tf.zeros([10000, 0])
+            samp_arr= tf.zeros([nsamps, 0])
 
             # for sampling from frequency distribution, create additional function from here
             if np.nonzero(fire_loc_arr[mindx])[0].size == 0: #if mean freqs from distribution is zero, then set burned area to be zero
@@ -1772,7 +1845,7 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
                     ml_param_vec= mdn_model.predict(x= np.array(X_freq_test_dat.iloc[fire_loc_arr[mindx]].drop(columns= ['CAPE', 'reg_indx', 'month']), dtype= np.float32)) #note: different indexing than the fire_size_test df
                 else:
                     ml_param_vec= mdn_model.predict(x= np.array(X_size_test_dat.iloc[fire_loc_arr[mindx]], dtype= np.float32))
-                samp_arr= tf.concat([samp_arr, stat_model(ml_param_vec).sample(10000, seed= seed)], axis= 1)
+                samp_arr= tf.concat([samp_arr, tf.reshape(stat_model(ml_param_vec).sample(nsamps, seed= seed), (nsamps, ml_param_vec.shape[0]))], axis= 1)
                 if debug:
                     fire_ind_grid.append(fire_loc_arr)
                     ml_param_grid.append(ml_param_vec)
