@@ -1126,7 +1126,7 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
     
 def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test_df, X_test_dat, custom_ml_model= None, max_size_arr= None, sum_size_arr= None, \
                                                         func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regrate= 0.001, epochs= 500, bs= 32, \
-                                                        freq_flag= 'ml', regmlfreq= None, freqs_data= None, \
+                                                        freq_flag= 'ml', regmlfreq= None, freqs_data= None, samp_weights= False, samp_weight_arr= None, \
                                                         loco= False, debug= False, regindx= None, rseed= None):
     
     # Calculates the predicted fire burned areas as well as its 1 sigma uncertainty for all regions
@@ -1160,7 +1160,10 @@ def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test
     es_mon = EarlyStopping(monitor='val_loss', min_delta=0, patience= 10, verbose=0, mode='auto', restore_best_weights=True)
     mdn= MDN_size(layers= n_layers, neurons= n_neurons, components= n_comps, initializer= initializer, reg= True, regrate= regrate, dropout= True)
     mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[acc_func])
-    h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= bs, verbose=0) 
+    if samp_weights:
+        h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= bs, sample_weight= samp_weight_arr, verbose=0)
+    else:
+        h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= bs, verbose=0)
 
     print("MDN trained for %d epochs"%len(h.history['loss']))
 
