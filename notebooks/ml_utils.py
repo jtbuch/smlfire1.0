@@ -952,9 +952,9 @@ def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, 
 
 ## ----------------------------------------------------------------- Fire size functions ----------------------------------------------------------------------------
 
-def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, scaled= False, rseed= None):
+def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, threshold= None, scaled= False, rseed= None):
     
-    # Returns the train/val/test data for fire sizes given a grid resolution
+    # Returns the train/val/test data for fire sizes given a grid resolution and threshold (in km^2)
     
     final_month= start_month + tot_test_months
     if rseed == None:
@@ -972,6 +972,11 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
     for k in tqdm(testfiregroups.groups.keys()):
         testdf= testdf.append(testfiregroups.get_group(k).loc[[testfiregroups.get_group(k)['cell_frac'].idxmax()]]) 
     fire_size_test= testdf.reset_index().drop(columns= ['index', 'cell_frac']) #pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
+    
+    if threshold != None:
+        fire_size_train= fire_size_train[fire_size_train['fire_size']/1e6 > threshold].reset_index().drop(columns= ['index'])
+    else:
+        fire_size_test= fire_size_test[fire_size_test['fire_size']/1e6 > threshold].reset_index().drop(columns= ['index'])
     
     fire_size_df= pd.concat([fire_size_train, fire_size_test], axis= 0)
     
@@ -1794,7 +1799,7 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 
     return pred_loc_arr
 
-def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', nsamps= 10000, \
+def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
                                             loc_df= None, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
                                             debug= False, regindx= None, seed= None):
     
@@ -1859,21 +1864,21 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
                 tot_l1sig_arr= np.sqrt(np.sum(std_size_arr**2))
                 
                 if debug:
-                    size_samp_arr[size_samp_arr > 2*max_size_arr[regindx]]= max_size_arr[regindx]
+                    size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx]
                     high_1sig_err[high_1sig_err > max_size_arr[regindx]]= max_size_arr[regindx] 
                     tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
 
-                    if np.sum(size_samp_arr) > 2*sum_size_arr[regindx]:
-                        mean_burnarea_tot[mindx]= sum_size_arr[regindx]
+                    if np.sum(size_samp_arr) > 3*sum_size_arr[regindx][m]:
+                        mean_burnarea_tot[mindx]= sum_size_arr[regindx][m]
                     else:
                         mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
                 else:
-                    size_samp_arr[size_samp_arr > 2*max_size_arr[r]]= max_size_arr[r]
+                    size_samp_arr[size_samp_arr > max_size_arr[r]]= max_size_arr[r]
                     high_1sig_err[high_1sig_err > max_size_arr[r]]= max_size_arr[r] 
                     tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
 
-                    if np.sum(size_samp_arr) > 2*sum_size_arr[r]:
-                        mean_burnarea_tot[mindx]= sum_size_arr[r]
+                    if np.sum(size_samp_arr) > 3*sum_size_arr[r][m]:
+                        mean_burnarea_tot[mindx]= sum_size_arr[r][m]
                     else:
                         mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
 
