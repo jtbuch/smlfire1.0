@@ -928,7 +928,7 @@ def file_io_func(firefile= None, firedf= None, lflag= 'L4', fflag= 'freq', io_fl
         tmpdf= tmpdf.dropna().reset_index().drop(columns=['index'])
         tmpdf.to_hdf('../data/clim_%s'%lflag + '_fire_%s'%fflag + '_data.h5', key= 'df', mode= 'w')
         
-def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60):
+def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60, hyp_flag= False):
     
     # creates a dataframe of 'effective' climate through a weighted average of burned area weighted grid cells
     
@@ -941,8 +941,14 @@ def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60):
     newdf= newdf.drop_duplicates(subset=['fire_indx']).reset_index().drop(columns= ['index'])
     climdf= pd.DataFrame(columns= firegdf.columns[8:])
     
-    for k in tqdm(firegroups.groups.keys()):
-        climdf= climdf.append(pd.DataFrame(data= np.reshape(np.average(firegroups.get_group(k).iloc[:, 8:], axis= 0, \
+    if hyp_flag:
+        for k in firegroups.groups.keys():
+            climdf= climdf.append(pd.DataFrame(data= np.reshape(np.average(firegroups.get_group(k).iloc[:, 8:], axis= 0, \
+                                    weights= firegroups.get_group(k)['cell_frac']), (1, len(firegdf.columns[8:]))), \
+                                    columns= firegdf.columns[8:]), ignore_index= True)
+    else:
+        for k in tqdm(firegroups.groups.keys()):
+            climdf= climdf.append(pd.DataFrame(data= np.reshape(np.average(firegroups.get_group(k).iloc[:, 8:], axis= 0, \
                                     weights= firegroups.get_group(k)['cell_frac']), (1, len(firegdf.columns[8:]))), \
                                     columns= firegdf.columns[8:]), ignore_index= True)
     

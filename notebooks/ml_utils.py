@@ -952,7 +952,7 @@ def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, 
 
 ## ----------------------------------------------------------------- Fire size functions ----------------------------------------------------------------------------
 
-def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, threshold= None, scaled= False, rseed= None):
+def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, threshold= None, scaled= False, rseed= None, hyp_flag= False):
     
     # Returns the train/val/test data for fire sizes given a grid resolution and threshold (in km^2)
     
@@ -965,17 +965,20 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
     else:
         clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
     
-    fire_size_train= init_eff_clim_fire_df(clim_fire_gdf, start_month, tot_test_months) #pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
+    fire_size_train= init_eff_clim_fire_df(clim_fire_gdf, start_month, tot_test_months, hyp_flag= hyp_flag) #pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
         
     testfiregroups= clim_fire_gdf[(clim_fire_gdf['fire_month'] >= start_month) & (clim_fire_gdf['fire_month'] < final_month)].groupby('fire_indx')
     testdf= pd.DataFrame({})
-    for k in tqdm(testfiregroups.groups.keys()):
-        testdf= testdf.append(testfiregroups.get_group(k).loc[[testfiregroups.get_group(k)['cell_frac'].idxmax()]]) 
+    if hyp_flag:
+        for k in testfiregroups.groups.keys():
+            testdf= testdf.append(testfiregroups.get_group(k).loc[[testfiregroups.get_group(k)['cell_frac'].idxmax()]])
+    else:
+        for k in tqdm(testfiregroups.groups.keys()):
+            testdf= testdf.append(testfiregroups.get_group(k).loc[[testfiregroups.get_group(k)['cell_frac'].idxmax()]]) 
     fire_size_test= testdf.reset_index().drop(columns= ['index', 'cell_frac']) #pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
     
     if threshold != None:
         fire_size_train= fire_size_train[fire_size_train['fire_size']/1e6 > threshold].reset_index().drop(columns= ['index'])
-    else:
         fire_size_test= fire_size_test[fire_size_test['fire_size']/1e6 > threshold].reset_index().drop(columns= ['index'])
     
     fire_size_df= pd.concat([fire_size_train, fire_size_test], axis= 0)
@@ -1346,9 +1349,9 @@ def rf_hyperparam_tuning(clim_grid_train_df, dropcols= ['Solar', 'Ant_Tmax', 'RH
     return param_df
 
 
-## ----------------------------------------------------------------- Calibration and prediction functions ----------------------------------------------------------------------------
+## ----------------------------------------------------------------- Calibration and prediction functions for fire frequency ----------------------------------------------------------------------------
 
-def ml_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
+def ml_fire_freq_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2048, 4096, 8192], pfrac_arr= [0.2, 0.3, 0.5, 0.7], \
                             dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
                             start_month= 372, test_tot_months= 60, ml_model= 'mdn', loro_ind= None, run_id= None):
     
@@ -1518,7 +1521,7 @@ def grid_freq_metrics(ml_freq_df, n_regs, tot_months, test_start, test_tot):
     list_of_lists= []
     acc_df= pd.DataFrame([])
     
-    for r in tqdm(range(n_regs)):
+    for r in range(n_regs): #tqdm
         for reg in regtype_arr:
             for i in inp_type_arr:
                 for p in pred_type_arr:
@@ -1584,7 +1587,7 @@ def grid_freq_predict(X_test_dat, freq_test_df, n_regs, ml_model, start_month, f
     tot_rfac_arr= []
     ml_freq_df= pd.DataFrame([])
     
-    for r in tqdm(range(n_regs)):
+    for r in range(n_regs): #tqdm
         pred_freq= []
         pred_freq_sig= []
         freq_arr= []
@@ -1678,7 +1681,7 @@ def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_
     else:
         ml_acc_df= grid_freq_metrics(ml_freq_df= ml_freq_df, n_regs= n_regs, tot_months= tot_months, test_start= test_start, test_tot= test_tot)
         ml_acc_df['tot_metric']= ml_acc_df['r_total']*ml_acc_df['r_ann_total']/(ml_acc_df['red_chisq_total'] + ml_acc_df['red_chisq_ann_total'])
-        for r in tqdm(range(n_regs)):
+        for r in range(n_regs): #tqdm
             norm_fac= []
             reg, inp, pred= ml_acc_df.groupby('reg_indx').get_group(r+1).sort_values(by= ['tot_metric'], ascending= False).iloc[[0]][['Regression', 'Input type', 'Pred. type']].to_numpy()[0]
             rfac_norm, r_pred= rescale_factor_model(ml_freq_groups, regindx= r+1, tot_months= tot_months, test_start= test_start, test_tot= test_tot, input_type= inp, pred_type= pred, regtype= reg)
@@ -1799,6 +1802,9 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 
     return pred_loc_arr
 
+## ----------------------------------------------------------------- Calibration and prediction functions for fire size ----------------------------------------------------------------------------
+
+
 def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
                                             loc_df= None, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
                                             debug= False, regindx= None, seed= None):
@@ -1818,7 +1824,7 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
     reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'low_1sig_size': pd.Series(dtype= 'int'), 'high_1sig_size': pd.Series(dtype= 'int'), \
                                                                                            'reg_indx': pd.Series(dtype= 'int')})
 
-    for r in tqdm(range(n_regions)): 
+    for r in range(n_regions): #tqdm
         mean_burnarea_tot= np.zeros(tot_months)
         high_1sig_burnarea_tot= np.zeros(tot_months)
         low_1sig_burnarea_tot= np.zeros(tot_months)
@@ -1908,3 +1914,210 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
         return reg_size_df, fire_ind_grid, ml_param_grid
     else:
         return reg_size_df
+
+def sampling_func(size_arr):
+    
+    # Calculates an interpolated pdf from a given fire size data set
+    
+    s= pd.Series(size_arr)
+    s= s[~s.duplicated()]
+    
+    empcdf_sizes= tfd.Empirical(s) 
+    cdf_emp_sizes= empcdf_sizes.cdf(s)
+    kde_density= stats.gaussian_kde(size_arr, bw_method= "silverman")
+    curve_1= 1 - np.sort(cdf_emp_sizes)
+    curve_2= kde_density.evaluate(np.sort(s))[1:]
+    curve_1= curve_1[curve_1!= 0]
+
+    eff_curve= 10**(0.5*(np.log10(curve_1) + np.log10(curve_2)))
+    eff_curve_func= interpolate.interp1d(np.sort(s)[1:], eff_curve, kind= 'linear', fill_value= 'extrapolate')
+    
+    return eff_curve_func
+
+def max_fire_size_sum_func(fire_size_df):
+    monthstep= [120, 240, 360, 432]
+    reg_sum_size_arr= []
+    for r in range(18): #tqdm
+        tmparr= np.array([np.sum(fire_size_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(k).fire_size.to_numpy()/1e6) \
+                                        for k in fire_size_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').groups.keys()])
+        indarr= np.array(list(fire_size_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').groups.keys()), dtype= int)
+
+        maxsumsize= np.max(tmparr[0:len(indarr[indarr <= monthstep[0]])])
+        sumsizearr= np.repeat(maxsumsize, monthstep[0])
+        totarrlen= len(indarr[indarr <= monthstep[0]])
+
+        for i in range(len(monthstep) - 1):
+            if np.max(tmparr[totarrlen:totarrlen+len(indarr[(indarr > monthstep[i])&(indarr <= monthstep[i+1])])]) > maxsumsize:
+                maxsumsize= np.max(tmparr[totarrlen:totarrlen+len(indarr[(indarr > monthstep[i])&(indarr <= monthstep[i+1])])])
+
+            sumsizearr= np.append(sumsizearr, np.repeat(maxsumsize, monthstep[i+1] - monthstep[i]))
+            totarrlen+= len(indarr[(indarr > monthstep[i])&(indarr <= monthstep[i+1])])
+
+        reg_sum_size_arr.append(sumsizearr)
+        
+    return np.asarray(reg_sum_size_arr)
+
+def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, regarr= None, timebreak= False, reg_gpd_ext_size_df= None):
+    
+    #Returns the cummulative monthly and annual fire sizes across the entire study region
+    
+    n_regions= 18
+    yr_arr= np.arange(0, tot_months + 1, 12)
+    reg_mon_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1), reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'])[0] for r in range(n_regions)])
+    
+    tot_mon_obs_size_arr= []
+    tot_mon_pred_size_arr= []
+    tot_mon_pred_1sig_arr= []
+    tot_ann_obs_size_arr= []
+    tot_ann_pred_size_arr= []
+    tot_ann_pred_1sig_arr= []
+    #tot_ann_pred_low_1sig_arr= []
+
+    iind= 0
+    if optflag:
+        if regarr == None:
+            reglist= np.arange(n_regions)[reg_mon_r_calib_arr >= 0.6]
+        else:
+            reglist= regarr
+    else:
+        reglist= np.arange(n_regions)
+    
+    for r in reglist: #tqdm
+        tot_mon_obs_size_arr.append(mon_burned_area(firefile, r+1).values)
+        tot_mon_pred_size_arr.append(reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'].to_numpy())
+        tot_mon_pred_1sig_arr.append(0.5*(reg_size_df.groupby('reg_indx').get_group(r+1)['high_1sig_size'].to_numpy() - reg_size_df.groupby('reg_indx').get_group(r+1)['low_1sig_size'].to_numpy()))
+        tot_ann_obs_size_arr.append(np.array([np.sum(tot_mon_obs_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
+        tot_ann_pred_size_arr.append(np.array([np.sum(tot_mon_pred_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
+        tot_ann_pred_1sig_arr.append(np.array([np.sqrt(np.sum(np.power(tot_mon_pred_1sig_arr[iind][yr_arr[i]:yr_arr[i+1]], 2))) for i in range(len(yr_arr) - 1)]))
+        iind+= 1
+        #tot_ann_pred_low_1sig_arr.append(np.array([np.sqrt(np.sum(np.power(tot_mon_pred_low_1sig_arr[r][yr_arr[i]:yr_arr[i+1]], 2))) for i in range(len(yr_arr) - 1)]))
+    
+    if timebreak:
+        reg_mon_ext_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1), reg_gpd_ext_size_df.groupby('reg_indx').get_group(r+1)['mean_size'])[0] for r in range(n_regions)])
+
+        tot_mon_pred_ext_size_arr= []
+        tot_mon_pred_ext_1sig_arr= []
+        tot_ann_pred_ext_size_arr= []
+        tot_ann_pred_ext_1sig_arr= []
+        
+        iind= 0
+        if optflag:
+            if regarr == None:
+                reglist= np.arange(n_regions)[reg_mon_ext_r_calib_arr >= 0.6]
+            else:
+                reglist= regarr
+        else:
+            reglist= np.arange(n_regions)
+    
+        for r_ext in reglist: #tqdm
+            tot_mon_pred_ext_size_arr.append(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['mean_size'].to_numpy())
+            tot_mon_pred_ext_1sig_arr.append(0.5*(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['high_1sig_size'].to_numpy() - \
+                                                  reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['low_1sig_size'].to_numpy()))
+            tot_ann_pred_ext_size_arr.append(np.array([np.sum(tot_mon_pred_ext_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
+            tot_ann_pred_ext_1sig_arr.append(np.array([np.sqrt(np.sum(np.power(tot_mon_pred_ext_1sig_arr[iind][yr_arr[i]:yr_arr[i+1]], 2))) for i in range(len(yr_arr) - 1)]))
+            iind+= 1
+        
+        tot_mon_fire_size_arr= np.append(np.sum(tot_mon_pred_size_arr, axis= 0)[0:252], np.sum(tot_mon_pred_ext_size_arr, axis= 0)[252:])
+        tot_mon_fire_1sig_arr= np.append(np.sqrt(np.sum(np.power(tot_mon_pred_1sig_arr, 2), axis= 0))[0:252], np.sqrt(np.sum(np.power(tot_mon_pred_ext_1sig_arr, 2), axis= 0))[252:])
+        tot_ann_fire_size_arr= np.append(np.sum(tot_ann_pred_size_arr, axis= 0)[0:20], np.sum(tot_ann_pred_ext_size_arr, axis= 0)[20:])
+        tot_ann_fire_1sig_arr= np.sqrt(np.sum(np.power(tot_ann_pred_ext_1sig_arr, 2), axis= 0)) #np.append(np.sqrt(np.sum(np.power(tot_ann_pred_1sig_arr, 2), axis= 0))[0:20], np.sqrt(np.sum(np.power(tot_ann_pred_ext_1sig_arr, 2), axis= 0))[20:])
+        
+        return tot_mon_obs_size_arr, tot_mon_fire_size_arr, tot_mon_fire_1sig_arr, tot_ann_obs_size_arr, tot_ann_fire_size_arr, tot_ann_fire_1sig_arr
+    
+    else:
+        return tot_mon_obs_size_arr, np.sum(tot_mon_pred_size_arr, axis= 0), np.sqrt(np.sum(np.power(tot_mon_pred_1sig_arr, 2), axis= 0)), tot_ann_obs_size_arr, \
+                                                                                    np.sum(tot_ann_pred_size_arr, axis= 0), np.sqrt(np.sum(np.power(tot_ann_pred_1sig_arr, 2), axis= 0))
+    
+def mon_to_ann_size_func(mon_size_arr, mon_high_1sig_arr, mon_low_1sig_arr, yrarr):
+    
+    pred_sizes= np.array([np.sum(mon_size_arr[yrarr[i]:yrarr[i+1]]) for i in range(len(yrarr) - 1)])
+    pred_mon_std= 0.5*(mon_high_1sig_arr - mon_low_1sig_arr)
+    pred_std= np.asarray([np.sqrt(np.sum(np.power(pred_mon_std, 2)[yrarr[i]:yrarr[i+1]])) for i in range(len(yrarr) - 1)])
+    pred_high_1sig= pred_sizes + pred_std
+    pred_low_1sig= pred_sizes - pred_std
+    pred_low_1sig[pred_low_1sig < 0]= 0
+    
+    return pred_sizes, pred_high_1sig, pred_low_1sig
+
+def ml_fire_size_hyperparam_tuning(firefilepath, n_iters= 5, lnc_arr= [[2, 8, 2], [1, 16, 4]], func_flag_arr= ['gpd', 'lognorm_gpd'], rwt_flag_arr= [False, True], \
+                            dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max3', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', 'Tmax_max7', 'VPD_max7', 'Tmin_max7'], \
+                            start_month= 420, tot_test_months= 12, threshold= 4, scaled= False, loro_ind= None, run_id= None):
+    
+    list_of_lists = []
+    
+    for it in tqdm(range(n_iters)):
+        rseed= np.random.randint(1000)
+        n_features= 36
+        end_month= start_month + tot_test_months
+
+        X_sizes_train, X_sizes_val, y_sizes_train, y_sizes_val, fire_size_train, fire_size_test, X_sizes_test, y_sizes_test, size_scaler= fire_size_data(res= '12km', \
+                                                dropcols= dropcols, start_month= start_month, tot_test_months= tot_test_months, threshold= threshold, scaled= scaled, hyp_flag= True) #size_scaler
+
+        X_sizes_train_df= pd.concat([X_sizes_train, X_sizes_val], sort= False).reset_index().drop(columns=['index'])
+        X_sizes_tot= pd.concat([X_sizes_train_df, X_sizes_test], sort= False).reset_index().drop(columns=['index'])
+        fire_size_tot= pd.concat([fire_size_train, fire_size_test], sort= False).reset_index().drop(columns=['index'])
+
+        fire_size_arr= np.concatenate([y_sizes_train, y_sizes_val])
+        eff_freq_func= sampling_func(y_sizes_train)
+        norm_fac= 1e-6
+        samp_weight_arr= norm_fac/eff_freq_func(y_sizes_train)
+        
+        run_id_ind, itind, bs, p_frac= ['02_27_22', 2, 8192, '0.3'] #['03_01_22', 12, 8192, '0.3'] #['02_27_22', 2, 8192, '0.3']
+        freq_loc_df= pd.read_hdf('../sav_files/fire_freq_pred_dfs/freq_loc_df_%s'%run_id_ind + '_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d.h5'%itind)
+
+        mdn_freq_df= pd.read_hdf('../sav_files/fire_freq_pred_dfs/mdn_mon_fire_freq_02_27_22_it_2_8192_0.3.h5')
+        mdn_mon_freq_df, mdn_ann_freq_df= calib_freq_predict(ml_freq_df= mdn_freq_df, n_regs= 18, tot_months= 432, test_start= 372, test_tot= 60, ml_model= 'mdn')
+        mdn_mon_freq_groups= mdn_mon_freq_df.groupby('reg_indx')
+        mdn_ann_freq_groups= mdn_ann_freq_df.groupby('reg_indx')
+        
+        nregions= 18
+        max_fire_train_arr= []
+        sum_fire_train_arr= []
+
+        for r in range(nregions):
+            max_fire_train_arr.append(np.max(np.concatenate([fire_size_train.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(k).fire_size.to_numpy()/1e6 \
+                                            for k in fire_size_train.groupby('reg_indx').get_group(r+1).groupby('fire_month').groups.keys()])))
+            #sum_fire_train_arr.append(np.max([np.sum(fire_size_train.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(k).fire_size.to_numpy()/1e6) \
+            #                                for k in fire_size_train.groupby('reg_indx').get_group(r+1).groupby('fire_month').groups.keys()]))
+
+        max_fire_train_arr= np.asarray(max_fire_train_arr)
+        sum_fire_train_arr= max_fire_size_sum_func(fire_size_df= fire_size_tot)
+
+        for lnc in lnc_arr:
+            for f in func_flag_arr:
+                for rwt in rwt_flag_arr:
+                    if rwt == True:
+                        mdn_size_model, h_mdn= reg_fire_size_func(X_train_dat= X_sizes_train, y_train_dat= y_sizes_train, X_val_dat= X_sizes_val, y_val_dat= y_sizes_val, \
+                                size_test_df= fire_size_test, X_test_dat= X_sizes_test, max_size_arr= max_fire_train_arr, sum_size_arr= sum_fire_train_arr, \
+                                epochs= 1000, bs= 32, func_flag= f, lnc_arr= lnc, samp_weights= True, samp_weight_arr= samp_weight_arr, loco= True, rseed= rseed)
+                        mdn_size_model.save('../sav_files/grid_size_runs_%s'%run_id + '/mdn_%s_'%f + '%d_layers_'%lnc[0] + '%d_comps_'%lnc[2] + 'ext_iter_run_%d'%(it+1))
+                    else:
+                        mdn_size_model, h_mdn= reg_fire_size_func(X_train_dat= X_sizes_train, y_train_dat= y_sizes_train, X_val_dat= X_sizes_val, y_val_dat= y_sizes_val, \
+                                size_test_df= fire_size_test, X_test_dat= X_sizes_test, max_size_arr= max_fire_train_arr, sum_size_arr= sum_fire_train_arr, \
+                                epochs= 1000, bs= 32, func_flag= f, lnc_arr= lnc, samp_weights= False, loco= True, rseed= rseed)
+                        mdn_size_model.save('../sav_files/grid_size_runs_%s'%run_id + '/mdn_%s_'%f + '%d_layers_'%lnc[0] + '%d_comps_'%lnc[2] + 'iter_run_%d'%(it+1))
+                    
+                    if f == 'gpd':
+                        stat_model= gpd_model
+                    elif f == 'lognorm':
+                        stat_model= lognorm_model
+                    elif f == 'lognorm_gpd':
+                        stat_model= lognorm_gpd_model_predict
+
+                    reg_data_size_df= grid_size_pred_func(mdn_model= mdn_size_model, stat_model= stat_model, max_size_arr= max_fire_train_arr, sum_size_arr= sum_fire_train_arr, \
+                                        start_month= 0, freq_flag= 'data', size_test_df= fire_size_tot, X_size_test_dat= X_sizes_tot, \
+                                        debug= False, seed= 99)
+
+                    tot_mon_obs_size_arr, tot_mon_pred_size_arr, tot_mon_pred_1sig_arr, tot_ann_obs_size_arr, \
+                            tot_ann_pred_size_arr, tot_ann_pred_1sig_arr= cumm_fire_size_func(firefile= firefilepath, reg_size_df= reg_data_size_df, optflag= True)
+                    if len(tot_mon_obs_size_arr) == 0:
+                        tot_mon_obs_size_arr, tot_mon_pred_size_arr, tot_mon_pred_1sig_arr, tot_ann_obs_size_arr, \
+                            tot_ann_pred_size_arr, tot_ann_pred_1sig_arr= cumm_fire_size_func(firefile= firefilepath, reg_size_df= reg_data_size_df, optflag= False)
+                    tot_mon_size_r= stats.pearsonr(np.sum(tot_mon_obs_size_arr, axis= 0), tot_mon_pred_size_arr)[0]
+                    tot_ann_size_r= stats.pearsonr(np.sum(tot_ann_obs_size_arr, axis= 0), tot_ann_pred_size_arr)[0]
+
+                    list_of_lists.append([it+1, lnc[0], f, rwt, np.nanmean(h_mdn.history['%s_accuracy'%f]), tot_mon_size_r, tot_ann_size_r])
+
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "n_layers", "func_flag", "Val Accuracy/Recall", "Monthly corr", "Annual corr"])
+    
+    return hp_df
