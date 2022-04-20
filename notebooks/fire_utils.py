@@ -1043,7 +1043,7 @@ def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_
         
     return clim_fire_df
 
-def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None):
+def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None, threshold= None):
     
     #creates a dataframe with climate variables and fire frequencies at monthly and annual resolutions
     
@@ -1066,7 +1066,9 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
         coord_df= tmax_df[['X', 'Y', 'month']]
         coord_df['fire_freq']= np.zeros_like(len(coord_df), dtype= int)
         fires_df= pd.read_hdf('../data/clim_fire_size_12km_train_data.h5').append(pd.read_hdf('../data/clim_fire_size_12km_test_data.h5'), ignore_index= True)
-
+        if threshold != None:
+            fires_df= fires_df[fires_df['fire_size']/1e6 > 4].reset_index().drop(columns= ['index'])
+        
         for ind in tqdm(range(len(fires_df))):
             freqind= coord_df[(coord_df.X == fires_df.loc[[ind]]['grid_x'][ind]) & (coord_df.Y == fires_df.loc[[ind]]['grid_y'][ind]) \
                                                                    & (coord_df.month == fires_df.loc[[ind]]['fire_month'][ind])].index[0]
