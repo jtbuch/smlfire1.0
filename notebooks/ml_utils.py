@@ -966,7 +966,8 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
         clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
     
     fire_size_train= init_eff_clim_fire_df(clim_fire_gdf, start_month, tot_test_months, hyp_flag= hyp_flag) #pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
-        
+    #fire_size_train.loc[:, 'Tmin']= fire_size_train['Tmax'] - fire_size_train['Tmin']
+    
     testfiregroups= clim_fire_gdf[(clim_fire_gdf['fire_month'] >= start_month) & (clim_fire_gdf['fire_month'] < final_month)].groupby('fire_indx')
     testdf= pd.DataFrame({})
     if hyp_flag:
@@ -976,6 +977,7 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
         for k in tqdm(testfiregroups.groups.keys()):
             testdf= testdf.append(testfiregroups.get_group(k).loc[[testfiregroups.get_group(k)['cell_frac'].idxmax()]]) 
     fire_size_test= testdf.reset_index().drop(columns= ['index', 'cell_frac']) #pd.read_hdf(data_dir + 'clim_fire_size_%s_test_data.h5'%res)
+    #fire_size_test.loc[:, 'Tmin']= fire_size_test['Tmax'] - fire_size_test['Tmin']
     
     if threshold != None:
         fire_size_train= fire_size_train[fire_size_train['fire_size']/1e6 > threshold].reset_index().drop(columns= ['index'])
@@ -1133,7 +1135,7 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
         return reg_size_df
     
 def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test_df, X_test_dat, custom_ml_model= None, max_size_arr= None, sum_size_arr= None, \
-                                                        func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regrate= 0.001, epochs= 500, bs= 32, \
+                                                        func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regflag= True, regrate= 0.001, doflag= False, epochs= 500, bs= 32, \
                                                         freq_flag= 'ml', regmlfreq= None, freqs_data= None, samp_weights= False, samp_weight_arr= None, \
                                                         loco= False, debug= False, regindx= None, rseed= None):
     
@@ -1166,7 +1168,7 @@ def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test
     print("Initialized a MDN with %d layers"%n_layers + " and %d neurons"%n_neurons)
 
     es_mon = EarlyStopping(monitor='val_loss', min_delta=0, patience= 10, verbose=0, mode='auto', restore_best_weights=True)
-    mdn= MDN_size(layers= n_layers, neurons= n_neurons, components= n_comps, initializer= initializer, reg= True, regrate= regrate, dropout= True)
+    mdn= MDN_size(layers= n_layers, neurons= n_neurons, components= n_comps, initializer= initializer, reg= regflag, regrate= regrate, dropout= doflag)
     mdn.compile(loss=loss_func, optimizer= tf.keras.optimizers.Adam(learning_rate= 1e-4), metrics=[acc_func])
     if samp_weights:
         h= mdn.fit(x= X_train_dat, y= y_train_dat, epochs= epochs, validation_data=(X_val_dat, y_val_dat), callbacks= [es_mon], batch_size= bs, sample_weight= samp_weight_arr, verbose=0)
@@ -1627,7 +1629,7 @@ def grid_freq_predict(X_test_dat, freq_test_df, n_regs, ml_model, start_month, f
             
     return ml_freq_df #, tot_rfac_arr
 
-def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_model= 'mdn', debug= False, regindx= None, arg_arr= None):
+def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_model= 'mdn', debug= False, regindx= None, arg_arr= None, manarg= None):
     
     # returns the calibrated predicted frequencies with a rescaled factor optimized for both monthly and annual metrics
     
@@ -1685,7 +1687,10 @@ def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_
         ml_acc_df['tot_metric']= ml_acc_df['r_total']*ml_acc_df['r_ann_total']/(ml_acc_df['red_chisq_total'] + ml_acc_df['red_chisq_ann_total'])
         for r in range(n_regs): #tqdm
             norm_fac= []
-            reg, inp, pred= ml_acc_df.groupby('reg_indx').get_group(r+1).sort_values(by= ['tot_metric'], ascending= False).iloc[[0]][['Regression', 'Input type', 'Pred. type']].to_numpy()[0]
+            if manarg != None:
+                reg, inp, pred= ml_acc_df.groupby('reg_indx').get_group(r+1).sort_values(by= ['tot_metric'], ascending= False).iloc[[manarg]][['Regression', 'Input type', 'Pred. type']].to_numpy()[0]
+            else:
+                reg, inp, pred= ml_acc_df.groupby('reg_indx').get_group(r+1).sort_values(by= ['tot_metric'], ascending= False).iloc[[0]][['Regression', 'Input type', 'Pred. type']].to_numpy()[0]
             rfac_norm, r_pred= rescale_factor_model(ml_freq_groups, regindx= r+1, tot_months= tot_months, test_start= test_start, test_tot= test_tot, input_type= inp, pred_type= pred, regtype= reg)
 
             if pred == 'mean':
