@@ -952,9 +952,9 @@ def fire_freq_loco(fire_L3_freq_df, fire_L4_freq_df, n_iters= 10, n_epochs= 10, 
 
 ## ----------------------------------------------------------------- Fire size functions ----------------------------------------------------------------------------
 
-def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, threshold= None, scaled= False, rseed= None, hyp_flag= False):
+def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH'], start_month= 372, tot_test_months= 60, threshold= None, scaled= False, rseed= None, tflag= False, hyp_flag= False):
     
-    # Returns the train/val/test data for fire sizes given a grid resolution and threshold (in km^2)
+    # Returns the train/val/test data for fire sizes given a grid resolution and threshold (in km^2); hyp_flag= True when performing hyperparameter search
     
     final_month= start_month + tot_test_months
     if rseed == None:
@@ -963,7 +963,10 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
     if scaled:
         clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
     else:
-        clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
+        if tflag:
+            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_data.h5'%res)
+        else:
+            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_data.h5'%res) #saved clim_fire_gdf with geolocated fire + climate data at 12km res
     
     fire_size_train= init_eff_clim_fire_df(clim_fire_gdf, start_month, tot_test_months, hyp_flag= hyp_flag) #pd.read_hdf(data_dir + 'clim_fire_size_%s_train_data.h5'%res)
     #fire_size_train.loc[:, 'Tmin']= fire_size_train['Tmax'] - fire_size_train['Tmin']
@@ -991,11 +994,11 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
     else:
         tmp_size_df= fire_size_df[fire_size_df.iloc[:, 7:].columns]
         X_size_df= pd.DataFrame({})
-        scaler=  StandardScaler().fit(fire_size_train.iloc[:, 7:])
+        scaler= StandardScaler().fit(fire_size_train.iloc[:, 7:])
         X_size_df[tmp_size_df.columns]= scaler.transform(tmp_size_df) 
 
         X_size_train_df= X_size_df.iloc[fire_size_train.index].drop(columns= dropcols) 
-        X_sizes_test= X_size_df.iloc[fire_size_test.index].drop(columns= dropcols) 
+        X_sizes_test= X_size_df.iloc[fire_size_test.index + len(fire_size_train)].drop(columns= dropcols) 
 
     y_size_train= np.array(fire_size_train.fire_size/1e6, dtype=np.float32) #1e6 converts from m^2 to km^2
     y_sizes_test= np.array(fire_size_test.fire_size/1e6, dtype=np.float32)
@@ -1135,9 +1138,9 @@ def size_pred_func(mdn_model, stat_model, size_test_df, X_test_dat, max_size_arr
         return reg_size_df
     
 def reg_fire_size_func(X_train_dat, y_train_dat, X_val_dat, y_val_dat, size_test_df, X_test_dat, custom_ml_model= None, max_size_arr= None, sum_size_arr= None, \
-                                                        func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regflag= True, regrate= 0.001, doflag= False, epochs= 500, bs= 32, \
-                                                        freq_flag= 'ml', regmlfreq= None, freqs_data= None, samp_weights= False, samp_weight_arr= None, \
-                                                        loco= False, debug= False, regindx= None, rseed= None):
+                                                        func_flag= 'gpd', lnc_arr= [2, 16, 2], initializer= "he_normal", regflag= True, regrate= 0.001, doflag= True,\
+                                                        epochs= 500, bs= 32, freq_flag= 'ml', regmlfreq= None, freqs_data= None, samp_weights= False, \
+                                                        samp_weight_arr= None, loco= False, debug= False, regindx= None, rseed= None):
     
     # Calculates the predicted fire burned areas as well as its 1 sigma uncertainty for all regions
     
@@ -1831,8 +1834,8 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 
 
 def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
-                                            loc_df= None, loc_flag= 'ml', ml_freq_flag= False, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
-                                            debug= False, regindx= None, seed= None):
+                            loc_df= None, loc_flag= 'ml', ml_freq_flag= False, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
+                            debug= False, regindx= None, seed= None):
     
     # Given a NN model, the function returns the monthly burned area time series for all L3 regions
     # TODO: include effect of frequency uncertainty
@@ -1878,7 +1881,9 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
                 mean_burnarea_tot[mindx]= 0
                 high_1sig_burnarea_tot[mindx]= 0
                 low_1sig_burnarea_tot[mindx]= 0
-
+                if debug:
+                    fire_ind_grid.append([0])
+                    ml_param_grid.append([0])
             else:
                 if freq_flag == 'ml':
                     ml_param_vec= mdn_model.predict(x= np.array(X_freq_test_dat.iloc[fire_loc_arr[mindx]].drop(columns= ['CAPE', 'reg_indx', 'month']), dtype= np.float32)) #note: different indexing than the fire_size_test df
@@ -1886,7 +1891,7 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
                     ml_param_vec= mdn_model.predict(x= np.array(X_size_test_dat.iloc[fire_loc_arr[mindx]], dtype= np.float32))
                 samp_arr= tf.concat([samp_arr, tf.reshape(stat_model(ml_param_vec).sample(nsamps, seed= seed), (nsamps, ml_param_vec.shape[0]))], axis= 1)
                 if debug:
-                    fire_ind_grid.append(fire_loc_arr)
+                    fire_ind_grid.append(fire_loc_arr[mindx])
                     ml_param_grid.append(ml_param_vec)
 
                 size_samp_arr= tf.reduce_mean(samp_arr, axis= 0).numpy()
@@ -1959,8 +1964,8 @@ def sampling_func(size_arr):
     
     return eff_curve_func
 
-def max_fire_size_sum_func(fire_size_df):
-    monthstep= [120, 240, 360, 432]
+def max_fire_size_sum_func(fire_size_df, final_month= 432):
+    monthstep= [120, 240, 360, final_month]
     reg_sum_size_arr= []
     for r in range(18): #tqdm
         tmparr= np.array([np.sum(fire_size_df.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(k).fire_size.to_numpy()/1e6) \
@@ -2034,8 +2039,9 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
     #Returns the cummulative monthly and annual fire sizes across the entire study region
     
     n_regions= 18
+    final_yr= int(tot_months/12) + 1983
     yr_arr= np.arange(0, tot_months + 1, 12)
-    reg_mon_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1), reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'])[0] for r in range(n_regions)])
+    reg_mon_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1, final_year= final_yr), reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'][0:tot_months])[0] for r in range(n_regions)])
     
     tot_mon_obs_size_arr= []
     tot_mon_pred_size_arr= []
@@ -2055,9 +2061,9 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
         reglist= np.arange(n_regions)
     
     for r in reglist: #tqdm
-        tot_mon_obs_size_arr.append(mon_burned_area(firefile, r+1).values)
-        tot_mon_pred_size_arr.append(reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'].to_numpy())
-        tot_mon_pred_1sig_arr.append(0.5*(reg_size_df.groupby('reg_indx').get_group(r+1)['high_1sig_size'].to_numpy() - reg_size_df.groupby('reg_indx').get_group(r+1)['low_1sig_size'].to_numpy()))
+        tot_mon_obs_size_arr.append(mon_burned_area(firefile, r+1, final_year= final_yr).values)
+        tot_mon_pred_size_arr.append(reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'].to_numpy()[0:tot_months])
+        tot_mon_pred_1sig_arr.append(0.5*(reg_size_df.groupby('reg_indx').get_group(r+1)['high_1sig_size'].to_numpy() - reg_size_df.groupby('reg_indx').get_group(r+1)['low_1sig_size'].to_numpy())[0:tot_months])
         tot_ann_obs_size_arr.append(np.array([np.sum(tot_mon_obs_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
         tot_ann_pred_size_arr.append(np.array([np.sum(tot_mon_pred_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
         tot_ann_pred_1sig_arr.append(np.array([np.sqrt(np.sum(np.power(tot_mon_pred_1sig_arr[iind][yr_arr[i]:yr_arr[i+1]], 2))) for i in range(len(yr_arr) - 1)]))
@@ -2065,7 +2071,7 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
         #tot_ann_pred_low_1sig_arr.append(np.array([np.sqrt(np.sum(np.power(tot_mon_pred_low_1sig_arr[r][yr_arr[i]:yr_arr[i+1]], 2))) for i in range(len(yr_arr) - 1)]))
     
     if timebreak:
-        reg_mon_ext_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1), reg_gpd_ext_size_df.groupby('reg_indx').get_group(r+1)['mean_size'])[0] for r in range(n_regions)])
+        reg_mon_ext_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1, final_year= final_yr), reg_gpd_ext_size_df.groupby('reg_indx').get_group(r+1)['mean_size'][0:tot_months])[0] for r in range(n_regions)])
 
         tot_mon_pred_ext_size_arr= []
         tot_mon_pred_ext_1sig_arr= []
@@ -2082,9 +2088,9 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
             reglist= np.arange(n_regions)
     
         for r_ext in reglist: #tqdm
-            tot_mon_pred_ext_size_arr.append(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['mean_size'].to_numpy())
+            tot_mon_pred_ext_size_arr.append(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['mean_size'].to_numpy()[0:tot_months])
             tot_mon_pred_ext_1sig_arr.append(0.5*(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['high_1sig_size'].to_numpy() - \
-                                                  reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['low_1sig_size'].to_numpy()))
+                                                  reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['low_1sig_size'].to_numpy())[0:tot_months])
             tot_ann_pred_ext_size_arr.append(np.array([np.sum(tot_mon_pred_ext_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
             tot_ann_pred_ext_1sig_arr.append(np.array([np.sqrt(np.sum(np.power(tot_mon_pred_ext_1sig_arr[iind][yr_arr[i]:yr_arr[i+1]], 2))) for i in range(len(yr_arr) - 1)]))
             iind+= 1
@@ -2231,3 +2237,19 @@ def theoretical_cdf_func(fire_size_df, X_size_df, mdn_mod, start_month, final_mo
         tot_fires+= len(np.vstack(ml_param_vec))
 
         return regmodels, tot_fires
+    
+def size_percentile_func(mdn_model, X_sizes_dat, fire_size_df, regindx, mindx, start_month= 0, final_month= 444, rseed= 99):
+    
+    # Calculates the mean and higher percentiles of the fire size distribution for monthly area burned in a given region
+    
+    params= mdn_model.predict(x= np.array(X_sizes_dat.iloc[fire_loc_func_obs(fire_size_df, regindx= regindx, start_month= start_month, \
+                                                                                                 final_month= final_month)[mindx]], dtype= np.float32))
+    samps= gpd_model(params).sample(1000, seed= rseed)
+    #re_samps= tf.clip_by_value(samps, clip_value_min= 0, clip_value_max= max_fire_train_arr[regindx - 1], name=None)
+    
+    mean_size= tf.reduce_sum(tf.reduce_mean(samps, axis= 0)).numpy()
+    p95_size= 1/1000*np.sum([tfp.stats.percentile(tf.reduce_sum(samps, axis= 1), 95, axis= 0) for i in range(1000)])
+    p99_size= 1/1000*np.sum([tfp.stats.percentile(tf.reduce_sum(samps, axis= 1), 99, axis= 0) for i in range(1000)])
+    p995_size= 1/1000*np.sum([tfp.stats.percentile(tf.reduce_sum(samps, axis= 1), 99.5, axis= 0) for i in range(1000)])
+    
+    return [mean_size, p95_size, p99_size, p995_size]

@@ -99,14 +99,15 @@ def ncdump(nc_fid, verb=True):
                 print_ncattr(var)
     return nc_attrs, nc_dims, nc_vars
 
-def coord_transform(coord_a, coord_b, input_crs= 'WGS84'):
+def coord_transform(coord_a, coord_b, input_crs= 'WGS84', output_crs= 'EPSG:5070'):
     #function to convert coordinates between different reference systems with a little help from pyproj.Transformer
+    #custom crs i/o with https://gis.stackexchange.com/questions/427786/pyproj-and-a-custom-crs
     
     crs_4326 = CRS("WGS84")
-    crs_proj = CRS("EPSG:5070")
+    crs_proj = CRS(output_crs)
     
-    if input_crs == 'EPSG:5070':
-        transformer= Transformer.from_crs(crs_proj, crs_4326)
+    if input_crs != 'WGS84':
+        transformer= Transformer.from_crs(crs_proj, crs_4326) #ESRI:54008
     else:
         transformer= Transformer.from_crs(crs_4326, crs_proj)
         
@@ -885,7 +886,8 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
             else:
                 gdf_var= pred_var
 
-            clim_var_data= clim_pred_var(pred_file_indx= pred_findx_arr[pred_var], pred_seas_indx= pred_sindx_arr[seas_var], tscale= "monthly", savg= False)
+            clim_var_data= clim_pred_var(pred_file_indx= pred_findx_arr[pred_var], pred_seas_indx= pred_sindx_arr[seas_var], tscale= "monthly", savg= False, \
+                                         start_year= start_year, final_year= final_year)
             if res == '24km':
                 if seas_var == 'static':
                     clim_var_arr= np.nanmean(sliding_window_view(clim_var_data[:-1 , :], (2, 2), axis= (0, 1)), axis= (2, 3))[::2, ::2]
@@ -930,7 +932,7 @@ def file_io_func(firefile= None, firedf= None, lflag= 'L4', fflag= 'freq', io_fl
         
 def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60, hyp_flag= False):
     
-    # creates a dataframe of 'effective' climate through a weighted average of burned area weighted grid cells
+    # creates a df of 'effective' climate for the fire size model by returning the average predictor variable value weighted by the burned area in each grid cell
     
     final_month= start_month + tot_test_months
     firetestgdf= firegdf[(firegdf['fire_month'] >= start_month)&(firegdf['fire_month'] < final_month)]
@@ -1048,24 +1050,29 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
     #creates a dataframe with climate variables and fire frequencies at monthly and annual resolutions
     
     clim_df= init_clim_fire_grid(res, tscale, start_year, final_year, scaled, startmon, totmonths) #time: ~ 8 mins
+    tot_months= (final_year + 1 - start_year)*12
     
     if tscale == 'monthly':
-        clim_fire_grid_df= xarray.open_dataarray('../data/12km/climate/primary/tmax.nc').sel(time=slice('1984', '2019')).to_dataframe(name='Tmax').reset_index() #.dropna()
+        clim_fire_grid_df= xarray.open_dataarray('../data/12km/climate/primary/tmax.nc').sel(time=slice('%s'%str(start_year), '%s'%str(final_year))).to_dataframe(name='Tmax').reset_index() #.dropna()
         clim_fire_grid_gdf= gpd.GeoDataFrame(clim_fire_grid_df.Tmax, crs= 'EPSG:5070', geometry= gpd.points_from_xy(clim_fire_grid_df.X, clim_fire_grid_df.Y))
         reg_indx_arr= update_reg_indx(clim_fire_grid_gdf) #time: ~ 1.5 hrs
         clim_fire_grid_df['reg_indx']= reg_indx_arr
 
-        tmax_arr= xarray.DataArray(data= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 1, tscale= "monthly", savg= False),
+        tmax_arr= xarray.DataArray(data= clim_pred_var(pred_file_indx= 1, pred_seas_indx= 1, tscale= "monthly", savg= False, start_year= start_year, final_year= final_year),
             dims=["month", "Y", "X"],
             coords=dict(
                 X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
                 Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
-                time= (["month"], np.linspace(0, 431, 432, dtype= np.int64)),),)
+                time= (["month"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
         tmax_df= tmax_arr.to_dataframe(name='Tmax').reset_index() #.dropna()
 
         coord_df= tmax_df[['X', 'Y', 'month']]
         coord_df['fire_freq']= np.zeros_like(len(coord_df), dtype= int)
-        fires_df= pd.read_hdf('../data/clim_fire_size_12km_train_data.h5').append(pd.read_hdf('../data/clim_fire_size_12km_test_data.h5'), ignore_index= True)
+        if final_year != 2020:
+            fires_df= pd.read_hdf('../data/clim_fire_size_12km_train_data.h5').append(pd.read_hdf('../data/clim_fire_size_12km_test_data.h5'), ignore_index= True)
+        else:
+            fires_df= pd.read_hdf('../data/clim_fire_size_12km_train_w2020_data.h5').append(pd.read_hdf('../data/clim_fire_size_12km_test_w2020_data.h5'),\
+                                                                                                                                               ignore_index= True)
         if threshold != None:
             fires_df= fires_df[fires_df['fire_size']/1e6 > 4].reset_index().drop(columns= ['index'])
         
@@ -1077,7 +1084,7 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
         clim_df= pd.concat([clim_df, coord_df['fire_freq'], coord_df['month'], clim_fire_grid_df['reg_indx'], coord_df['X'], coord_df['Y']], axis=1)
     
     elif tscale == 'longterm':
-        clim_fire_grid_df= xarray.open_dataarray('../data/12km/climate/primary/tmax.nc').sel(time=slice('1984', '2019')).mean(dim= 'time').to_dataframe(name='Tmax').reset_index() #.dropna()
+        clim_fire_grid_df= xarray.open_dataarray('../data/12km/climate/primary/tmax.nc').sel(time=slice('%s'%str(start_year), '%s'%str(final_year))).mean(dim= 'time').to_dataframe(name='Tmax').reset_index() #.dropna()
         clim_fire_grid_gdf= gpd.GeoDataFrame(clim_fire_grid_df.Tmax, crs= 'EPSG:5070', geometry= gpd.points_from_xy(clim_fire_grid_df.X, clim_fire_grid_df.Y))
         reg_indx_arr= update_reg_indx(clim_fire_grid_gdf)
         clim_fire_grid_df['reg_indx']= reg_indx_arr
