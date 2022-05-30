@@ -1111,6 +1111,17 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
     
     return clim_df
 
+def drop_col_func(mod_type):
+    dropcollist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', \
+                             'Tmax_max7', 'VPD_max7', 'Tmin_max7']
+    if mod_type == 'minimal':
+        dropcollist.extend(['Camp_dist', 'Camp_num', 'Slope', 'Southness', 'VPD', 'Tmax', 'Tmax_max3', 'Tmin_max3', \
+                            'Prec', 'Elev', 'Tmin', 'Avgprec_3mo', 'Forest', 'Urban'])
+    elif mod_type == 'normal':
+        dropcollist.extend(['AvgVPD_4mo', 'AvgVPD_2mo'])
+    
+    return dropcollist
+
 #archived function for indiviudal climate-fire correlations from Park's .nc file
 
 #def init_fire_df(firefile):

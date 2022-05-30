@@ -2238,7 +2238,7 @@ def theoretical_cdf_func(fire_size_df, X_size_df, mdn_mod, start_month, final_mo
 
         return regmodels, tot_fires
     
-def size_percentile_func(mdn_model, X_sizes_dat, fire_size_df, regindx, mindx, start_month= 0, final_month= 444, rseed= 99):
+def mon_size_percentile_func(mdn_model, X_sizes_dat, fire_size_df, regindx, mindx, start_month= 0, final_month= 444, rseed= 99):
     
     # Calculates the mean and higher percentiles of the fire size distribution for monthly area burned in a given region
     
@@ -2253,3 +2253,26 @@ def size_percentile_func(mdn_model, X_sizes_dat, fire_size_df, regindx, mindx, s
     p995_size= 1/1000*np.sum([tfp.stats.percentile(tf.reduce_sum(samps, axis= 1), 99.5, axis= 0) for i in range(1000)])
     
     return [mean_size, p95_size, p99_size, p995_size]
+
+def ann_size_percentile_func(mdn_model, firefile, fire_size_df, X_sizes_dat, extyeararr, reglist= None, inf_fac= 3.0, start_month= 0, final_month= 444, rseed= 99):
+    
+    # Calculates the mean and higher percentiles of the fire size distribution for annual area burned across different regions
+    
+    n_regions= 18
+    emp_burned_area= [] 
+    pred_burned_area= []
+    if reglist == None:
+        reglist= range(n_regions)
+
+    for m in tqdm(range(len(extyeararr))):
+        smon= (extyeararr[m] - 1984)*12 
+        tmpregarr= np.hstack([np.hstack(fire_loc_func_obs(fire_size_df, regindx= r+1, start_month= start_month, final_month= final_month)[smon:smon+12]) for r in reglist])
+        emp_burned_area.append(np.sum([np.sum(mon_burned_area(firefile, regindx= r+1, final_year= 2020)[smon:smon+12]) for r in reglist]))
+
+        tmpregarr= tmpregarr[tmpregarr!=0]
+        params= mdn_model.predict(x= np.array(X_sizes_dat.iloc[tmpregarr], dtype= np.float32))
+        samps= tf.clip_by_value(gpd_model(params).sample(1000, seed= rseed), clip_value_min= 0, clip_value_max= inf_fac*fire_size_df[fire_size_df.fire_month <= smon]['fire_size'].max()/1e6)
+
+        pred_burned_area.append(tf.reduce_sum(samps, axis= 1).numpy())
+    
+    return pred_burned_area, emp_burned_area
