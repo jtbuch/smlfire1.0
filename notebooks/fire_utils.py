@@ -962,7 +962,7 @@ def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60, hyp_fl
 
 def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None):
     
-    # Initializes a dataframe with climate and fire frequency information at each grid point
+    # Initializes a dataframe with climate and fire frequency information at each grid point; startmon/totmonths is for test data!
     
     pred_flabel_arr= {1: ['Tmax', 'warm'], 2: ['VPD', 'warm'], 3: ['Prec', 'warm'], 4: ['Prec', 'antecedent_lag1', 'Antprec_lag1'], 5: ['Forest', 'annual'], \
                         6: ['Solar', 'warm'], 7: ['Wind', 'warm'], 8: ['Elev', 'static'], 9: ['Grassland', 'annual'], 10: ['RH', 'warm'], 11: ['FM1000', 'warm'], \
@@ -1111,14 +1111,17 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
     
     return clim_df
 
-def drop_col_func(mod_type):
-    dropcollist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', \
+def drop_col_func(mod_type, add_var_flag= False, add_var_list= None):
+    dropcollist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', \
                              'Tmax_max7', 'VPD_max7', 'Tmin_max7']
     if mod_type == 'minimal':
         dropcollist.extend(['Camp_dist', 'Camp_num', 'Slope', 'Southness', 'VPD', 'Tmax', 'Tmax_max3', 'Tmin_max3', \
                             'Prec', 'Elev', 'Tmin', 'Avgprec_3mo', 'Forest', 'Urban'])
     elif mod_type == 'normal':
-        dropcollist.extend(['AvgVPD_4mo', 'AvgVPD_2mo'])
+        if not add_var_flag:
+            dropcollist.extend(['AvgVPD_2mo'])
+        else:
+            dropcollist.extend(np.append(['AvgVPD_2mo'], add_var_list))
     
     return dropcollist
 

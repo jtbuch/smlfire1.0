@@ -116,6 +116,22 @@ def zipd_model(parameter_vector):
     
     return zipd_mix
 
+def zipd_model_shap(mdn_mod, X):
+    
+    parameter_vector= mdn_mod.predict(x= X)
+    pi, mu, delta= tf.split(parameter_vector, 3, axis= 1)
+    mu= tf.squeeze(mu)
+    delta= tf.squeeze(delta)
+    
+    rateparam= tf.exp(mu + delta)
+    probs_tf= tf.concat([pi, 1-pi], axis=1) #tf.stack([pi, 1-pi], -1)
+    
+    zipd_mix= tfd.Mixture(
+    cat=tfd.Categorical(probs= tf.squeeze(probs_tf)),
+    components=[tfd.Deterministic(loc= tf.zeros_like(mu)), tfd.Poisson(rate= rateparam),])
+    
+    return pd.Series(tf.cast(tf.reduce_mean(zipd_mix.sample(1000, seed= 99), axis= 0), tf.int64).numpy())
+
 def zipd_loss(y, parameter_vector, cdf_flag= False):
     
     zipd_mix= zipd_model(parameter_vector)
@@ -1586,49 +1602,60 @@ def grid_freq_metrics(ml_freq_df, n_regs, tot_months, test_start, test_tot):
     acc_df= pd.DataFrame(list_of_lists, columns=["reg_indx", "Regression", "Input type", "Pred. type", "r_total", "red_chisq_total", "r_test", "red_chisq_test", "r_ann_total", "red_chisq_ann_total"])
     return acc_df
 
-def grid_freq_predict(X_test_dat, freq_test_df, n_regs, ml_model, start_month, final_month= 432, func_flag= 'zipd'):
+def grid_freq_predict(X_test_dat, freq_test_df= None, n_regs= 18, ml_model= None, start_month= 0, final_month= 432, func_flag= 'zipd', shap_flag= False, regindx= None, rseed= 99):
     
     # Predicts the fire frequency for each L3 ecoregion
     
     tot_months= final_month - start_month
-    tot_rfac_arr= []
     ml_freq_df= pd.DataFrame([])
     
-    for r in tqdm(range(n_regs)):  
-        pred_freq= []
-        pred_freq_sig= []
+    if shap_flag:
         freq_arr= []
-        for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
-            X_arr= np.array(X_test_dat.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).dropna().drop(columns= ['reg_indx', 'month']), dtype= np.float32)
-            if func_flag == 'zipd':
-                param_vec= ml_model.predict(x= tf.constant(X_arr))
-                freq_samp= zipd_model(param_vec).sample(10000, seed= 99)
-                pred_freq.append(tf.reduce_sum(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)).numpy())
-                pred_freq_sig.append(np.sqrt(tf.reduce_sum(tf.pow(tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64), 2)).numpy()).astype(np.int64))
-                
-                freq_arr.append(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64).numpy())
-            
-            elif func_flag == 'logistic':
-                reg_predictions= ml_model.predict(x= tf.constant(X_arr)).flatten()
-                freq_arr.append([1 if p > 0.5 else 0 for p in reg_predictions])
-                pred_freq.append(np.sum([1 if p > 0.5 else 0 for p in reg_predictions]))
+        X_arr= np.array(X_test_dat, dtype= np.float32)
+        param_vec= ml_model.predict(x= tf.constant(X_arr))
+        freq_samp= zipd_model(param_vec).sample(1000, seed= rseed)
+        freq_arr.append(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64).numpy())
         
-        obs_freqs= [np.sum(freq_test_df.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).fire_freq) \
-                                                                          for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64)]
-        #tot_rfac_arr.append((np.std(obs_freqs)/np.std(pred_freq)))
-        pred_freq_arr= [np.sum(freq_arr[m - start_month]) for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64)]
-        reg_indx_arr= np.ones(tot_months, dtype= np.int64)*(r+1)
-        
-        if func_flag == 'zipd':
-            pred_high_2sig= np.ceil((np.array(pred_freq) + 2*np.array(pred_freq_sig)))
-            pred_low= np.array(pred_freq) - 2*np.array(pred_freq_sig)
-            pred_low[pred_low < 0]= 0
-            pred_low_2sig= np.floor(pred_low)
+        reg_indx_arr= (regindx+1)*np.ones(len(freq_arr), dtype= np.int64)
+        ml_freq_df= ml_freq_df.append(pd.DataFrame({'pred_mean_freq': freq_arr, 'reg_indx': reg_indx_arr}))
+    
+    else:
+        tot_rfac_arr= []
+        for r in tqdm(range(n_regs)):  
+            pred_freq= []
+            pred_freq_sig= []
+            freq_arr= []
+            for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
+                X_arr= np.array(X_test_dat.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).dropna().drop(columns= ['reg_indx', 'month']), dtype= np.float32)
+                if func_flag == 'zipd':
+                    param_vec= ml_model.predict(x= tf.constant(X_arr))
+                    freq_samp= zipd_model(param_vec).sample(10000, seed= rseed)
+                    pred_freq.append(tf.reduce_sum(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64)).numpy())
+                    pred_freq_sig.append(np.sqrt(tf.reduce_sum(tf.pow(tf.cast(tf.math.reduce_std(freq_samp, axis= 0), tf.int64), 2)).numpy()).astype(np.int64))
 
-            ml_freq_df= ml_freq_df.append(pd.DataFrame({'obs_freq': obs_freqs, 'pred_mean_freq': pred_freq_arr, 'pred_high_2sig': pred_high_2sig, 'pred_low_2sig': pred_low_2sig, \
-                                                                                                                                  'reg_indx': reg_indx_arr}))
-        if func_flag == 'logistic':
-            ml_freq_df= ml_freq_df.append(pd.DataFrame({'obs_freq': obs_freqs, 'pred_mean_freq': pred_freq_arr, 'reg_indx': reg_indx_arr}))
+                    freq_arr.append(tf.cast(tf.reduce_mean(freq_samp, axis= 0), tf.int64).numpy())
+
+                elif func_flag == 'logistic':
+                    reg_predictions= ml_model.predict(x= tf.constant(X_arr)).flatten()
+                    freq_arr.append([1 if p > 0.5 else 0 for p in reg_predictions])
+                    pred_freq.append(np.sum([1 if p > 0.5 else 0 for p in reg_predictions]))
+
+            obs_freqs= [np.sum(freq_test_df.groupby('reg_indx').get_group(r+1).groupby('month').get_group(m).fire_freq) \
+                                                                              for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64)]
+            #tot_rfac_arr.append((np.std(obs_freqs)/np.std(pred_freq)))
+            pred_freq_arr= [np.sum(freq_arr[m - start_month]) for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64)]
+            reg_indx_arr= np.ones(tot_months, dtype= np.int64)*(r+1)
+
+            if func_flag == 'zipd':
+                pred_high_2sig= np.ceil((np.array(pred_freq) + 2*np.array(pred_freq_sig)))
+                pred_low= np.array(pred_freq) - 2*np.array(pred_freq_sig)
+                pred_low[pred_low < 0]= 0
+                pred_low_2sig= np.floor(pred_low)
+
+                ml_freq_df= ml_freq_df.append(pd.DataFrame({'obs_freq': obs_freqs, 'pred_mean_freq': pred_freq_arr, 'pred_high_2sig': pred_high_2sig, 'pred_low_2sig': pred_low_2sig, \
+                                                                                                                                      'reg_indx': reg_indx_arr}))
+            if func_flag == 'logistic':
+                ml_freq_df= ml_freq_df.append(pd.DataFrame({'obs_freq': obs_freqs, 'pred_mean_freq': pred_freq_arr, 'reg_indx': reg_indx_arr}))
             
     return ml_freq_df #, tot_rfac_arr
 
@@ -1833,9 +1860,9 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 ## ----------------------------------------------------------------- Calibration and prediction functions for fire size ----------------------------------------------------------------------------
 
 
-def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
+def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month= 0, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
                             loc_df= None, loc_flag= 'ml', ml_freq_flag= False, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
-                            debug= False, regindx= None, seed= None):
+                            debug= False, shap_flag= False, regindx= None, seed= None):
     
     # Given a NN model, the function returns the monthly burned area time series for all L3 regions
     # TODO: include effect of frequency uncertainty
@@ -1849,96 +1876,107 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
     else:
         n_regions= 18
     tot_months= final_month - start_month
-    reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'low_1sig_size': pd.Series(dtype= 'int'), 'high_1sig_size': pd.Series(dtype= 'int'), \
-                                                                                           'reg_indx': pd.Series(dtype= 'int')})
-
-    for r in tqdm(range(n_regions)): #tqdm --> removed for hyperparameter runs
-        mean_burnarea_tot= np.zeros(tot_months)
-        high_1sig_burnarea_tot= np.zeros(tot_months)
-        low_1sig_burnarea_tot= np.zeros(tot_months)
-        
-        if freq_flag == 'ml':
-            if debug:
-                fire_loc_arr= fire_loc_func(loc_df, ml_freq_df, X_freq_test_dat, regindx= regindx, start_month= start_month, final_month= final_month, loc_flag= loc_flag)  #replace with model instead of df and try with one region first
-                fire_ind_grid= []
-                ml_param_grid= []
-            else:
-                fire_loc_arr= fire_loc_func(loc_df, ml_freq_df, X_freq_test_dat, regindx= r+1, start_month= start_month, final_month= final_month, loc_flag= loc_flag)
-        else:
-            if debug:
-                fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= regindx, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, ml_freq_df= ml_freq_df)
-                fire_ind_grid= []
-                ml_param_grid= []
-            else:
-                fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= r+1, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, ml_freq_df= ml_freq_df)
     
-        for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
-            mindx= m - start_month
-            samp_arr= tf.zeros([nsamps, 0])
+    if shap_flag:
+        reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
+        samp_arr= tf.zeros([nsamps, 0])
+        ml_param_vec= mdn_model.predict(x= np.array(X_size_test_dat, dtype= np.float32))
+        samp_arr= tf.concat([samp_arr, tf.reshape(stat_model(ml_param_vec).sample(nsamps, seed= seed), (nsamps, ml_param_vec.shape[0]))], axis= 1)
+        size_samp_arr= tf.reduce_mean(samp_arr, axis= 0).numpy()
+        size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx]
+        reg_indx_arr= (regindx+1)*np.ones(len(size_samp_arr), dtype= np.int64)
+        reg_size_df= reg_size_df.append(pd.DataFrame({'mean_size': size_samp_arr, 'reg_indx': reg_indx_arr}), ignore_index=True) #add month index
+    
+    else:
+        reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'low_1sig_size': pd.Series(dtype= 'int'), 'high_1sig_size': pd.Series(dtype= 'int'), \
+                                                                                           'reg_indx': pd.Series(dtype= 'int')})
+        for r in range(n_regions): #tqdm --> removed for hyperparameter runs
+            mean_burnarea_tot= np.zeros(tot_months)
+            high_1sig_burnarea_tot= np.zeros(tot_months)
+            low_1sig_burnarea_tot= np.zeros(tot_months)
 
-            # for sampling from frequency distribution, create additional function from here
-            if np.nonzero(fire_loc_arr[mindx])[0].size == 0: #if mean freqs from distribution is zero, then set burned area to be zero
-                mean_burnarea_tot[mindx]= 0
-                high_1sig_burnarea_tot[mindx]= 0
-                low_1sig_burnarea_tot[mindx]= 0
+            if freq_flag == 'ml':
                 if debug:
-                    fire_ind_grid.append([0])
-                    ml_param_grid.append([0])
-            else:
-                if freq_flag == 'ml':
-                    ml_param_vec= mdn_model.predict(x= np.array(X_freq_test_dat.iloc[fire_loc_arr[mindx]].drop(columns= ['CAPE', 'reg_indx', 'month']), dtype= np.float32)) #note: different indexing than the fire_size_test df
+                    fire_loc_arr= fire_loc_func(loc_df, ml_freq_df, X_freq_test_dat, regindx= regindx, start_month= start_month, final_month= final_month, loc_flag= loc_flag)  #replace with model instead of df and try with one region first
+                    fire_ind_grid= []
+                    ml_param_grid= []
                 else:
-                    ml_param_vec= mdn_model.predict(x= np.array(X_size_test_dat.iloc[fire_loc_arr[mindx]], dtype= np.float32))
-                samp_arr= tf.concat([samp_arr, tf.reshape(stat_model(ml_param_vec).sample(nsamps, seed= seed), (nsamps, ml_param_vec.shape[0]))], axis= 1)
+                    fire_loc_arr= fire_loc_func(loc_df, ml_freq_df, X_freq_test_dat, regindx= r+1, start_month= start_month, final_month= final_month, loc_flag= loc_flag)
+            elif freq_flag == 'data':
                 if debug:
-                    fire_ind_grid.append(fire_loc_arr[mindx])
-                    ml_param_grid.append(ml_param_vec)
-
-                size_samp_arr= tf.reduce_mean(samp_arr, axis= 0).numpy()
-                std_size_arr= tf.math.reduce_std(samp_arr, axis= 0).numpy()
-                high_1sig_err= deepcopy(std_size_arr)
-                tot_l1sig_arr= np.sqrt(np.sum(std_size_arr**2))
-                
-                if debug:
-                    size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx]
-                    high_1sig_err[high_1sig_err > max_size_arr[regindx]]= max_size_arr[regindx] 
-                    tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
-
-                    if np.sum(size_samp_arr) > 3*sum_size_arr[regindx][m]:
-                        mean_burnarea_tot[mindx]= sum_size_arr[regindx][m]
-                    else:
-                        mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+                    fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= regindx, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, ml_freq_df= ml_freq_df)
+                    fire_ind_grid= []
+                    ml_param_grid= []
                 else:
-                    size_samp_arr[size_samp_arr > max_size_arr[r]]= max_size_arr[r]
-                    high_1sig_err[high_1sig_err > max_size_arr[r]]= max_size_arr[r] 
-                    tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
+                    fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= r+1, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, ml_freq_df= ml_freq_df)
 
-                    if np.sum(size_samp_arr) > 3*sum_size_arr[r][m]:
-                        mean_burnarea_tot[mindx]= sum_size_arr[r][m]
-                    else:
-                        mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+            for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
+                mindx= m - start_month
+                samp_arr= tf.zeros([nsamps, 0])
 
-                high_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] + tot_h1sig_arr
-                low_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] - tot_l1sig_arr
-                if (mean_burnarea_tot[mindx] - tot_l1sig_arr) < 0: 
+                # for sampling from frequency distribution, create additional function from here
+                if np.nonzero(fire_loc_arr[mindx])[0].size == 0: #if mean freqs from distribution is zero, then set burned area to be zero
+                    mean_burnarea_tot[mindx]= 0
+                    high_1sig_burnarea_tot[mindx]= 0
                     low_1sig_burnarea_tot[mindx]= 0
+                    if debug:
+                        fire_ind_grid.append([0])
+                        ml_param_grid.append([0])
+                else:
+                    if freq_flag == 'ml':
+                        ml_param_vec= mdn_model.predict(x= np.array(X_freq_test_dat.iloc[fire_loc_arr[mindx]].drop(columns= ['CAPE', 'reg_indx', 'month']), dtype= np.float32)) #note: different indexing than the fire_size_test df
+                    elif freq_flag == 'data':
+                        ml_param_vec= mdn_model.predict(x= np.array(X_size_test_dat.iloc[fire_loc_arr[mindx]], dtype= np.float32))
+                    samp_arr= tf.concat([samp_arr, tf.reshape(stat_model(ml_param_vec).sample(nsamps, seed= seed), (nsamps, ml_param_vec.shape[0]))], axis= 1)
+                    if debug:
+                        fire_ind_grid.append(fire_loc_arr[mindx])
+                        ml_param_grid.append(ml_param_vec)
 
-                #if np.max(size_samp_arr) > max_size_arr[i]:
-                #    max_size_arr[i]= np.max(size_samp_arr)
+                    size_samp_arr= tf.reduce_mean(samp_arr, axis= 0).numpy()
+                    std_size_arr= tf.math.reduce_std(samp_arr, axis= 0).numpy()
+                    high_1sig_err= deepcopy(std_size_arr)
+                    tot_l1sig_arr= np.sqrt(np.sum(std_size_arr**2))
 
-                #while np.sum(size_samp_arr) > 2*sum_size_arr[i]:
-                #    rseed= np.random.randint(10000)
-                #    size_samp_arr= tf.reduce_mean(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
-                #    std_size_arr= tf.math.reduce_std(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
-                #if np.sum(size_samp_arr) > sum_size_arr[i]:
-                #    sum_size_arr[i]= np.sum(size_samp_arr)
-        
-        if debug:
-            reg_indx_arr= (regindx)*np.ones(tot_months, dtype= np.int64)
-        else:
-            reg_indx_arr= (r+1)*np.ones(tot_months, dtype= np.int64)
-        reg_size_df= reg_size_df.append(pd.DataFrame({'mean_size': mean_burnarea_tot, 'low_1sig_size': low_1sig_burnarea_tot, 'high_1sig_size': high_1sig_burnarea_tot, \
-                                                                                           'reg_indx': reg_indx_arr}), ignore_index=True)
+                    if debug:
+                        size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx]
+                        high_1sig_err[high_1sig_err > max_size_arr[regindx]]= max_size_arr[regindx] 
+                        tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
+
+                        if np.sum(size_samp_arr) > 3*sum_size_arr[regindx][m]:
+                            mean_burnarea_tot[mindx]= sum_size_arr[regindx][m]
+                        else:
+                            mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+                    else:
+                        size_samp_arr[size_samp_arr > max_size_arr[r]]= max_size_arr[r]
+                        high_1sig_err[high_1sig_err > max_size_arr[r]]= max_size_arr[r] 
+                        tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
+
+                        if np.sum(size_samp_arr) > 3*sum_size_arr[r][m]:
+                            mean_burnarea_tot[mindx]= sum_size_arr[r][m]
+                        else:
+                            mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+
+                    high_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] + tot_h1sig_arr
+                    low_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] - tot_l1sig_arr
+                    if (mean_burnarea_tot[mindx] - tot_l1sig_arr) < 0: 
+                        low_1sig_burnarea_tot[mindx]= 0
+
+                    #if np.max(size_samp_arr) > max_size_arr[i]:
+                    #    max_size_arr[i]= np.max(size_samp_arr)
+
+                    #while np.sum(size_samp_arr) > 2*sum_size_arr[i]:
+                    #    rseed= np.random.randint(10000)
+                    #    size_samp_arr= tf.reduce_mean(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
+                    #    std_size_arr= tf.math.reduce_std(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
+                    #if np.sum(size_samp_arr) > sum_size_arr[i]:
+                    #    sum_size_arr[i]= np.sum(size_samp_arr)
+
+            if debug:
+                reg_indx_arr= (regindx)*np.ones(tot_months, dtype= np.int64)
+            else:
+                reg_indx_arr= (r+1)*np.ones(tot_months, dtype= np.int64)
+            reg_size_df= reg_size_df.append(pd.DataFrame({'mean_size': mean_burnarea_tot, 'low_1sig_size': low_1sig_burnarea_tot, 'high_1sig_size': high_1sig_burnarea_tot, \
+                                                                                               'reg_indx': reg_indx_arr}), ignore_index=True)
 
     if debug:
         return reg_size_df, fire_ind_grid, ml_param_grid
