@@ -977,7 +977,10 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
         rseed= np.random.randint(1000)
     
     if scaled:
-        clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
+        if tflag:
+            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_rescaled_data.h5'%res)
+        else:
+            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
     else:
         if tflag:
             clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_data.h5'%res)
@@ -1213,8 +1216,10 @@ def size_acc_func(pvec, obs_sizes, func_flag= 'gpd'):
     
     if func_flag == 'gpd':
         stat_model= gpd_model
-    elif func_flag == 'lognormal':
-        stat_model= lognormal_model
+    elif func_flag == 'lognorm':
+        stat_model= lognorm_model
+    elif func_flag == 'lognorm_gpd':
+        stat_model= lognorm_gpd_model_predict
         
     pmf_pred= stat_model(pvec).prob(obs_sizes)
     obspmf= tfd.Empirical(obs_sizes)
@@ -1442,7 +1447,7 @@ def ml_fire_freq_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2
                     
                     print("MDN trained for %d epochs"%len(h_ml.history['loss']))
                     mdn.save('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
-                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_zipd_accuracy'])])
+                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_loss']), np.nanmax(h_ml.history['val_zipd_accuracy'])])
                 
                 elif ml_model == 'dnn':
                     dnn= DNN(layers= 2, neurons= 16)
@@ -1452,10 +1457,10 @@ def ml_fire_freq_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2
                     
                     print("DNN trained for %d epochs"%len(h_ml.history['loss']))
                     dnn.save('../sav_files/grid_freq_runs_%s'%run_id + '/dnn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
-                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_recall'])])
+                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_loss']), np.nanmean(h_ml.history['val_recall'])])
     
     
-    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy/Recall"])
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Loss", "Val Accuracy/Recall"])
     
     return hp_df
 
