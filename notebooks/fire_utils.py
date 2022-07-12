@@ -408,6 +408,30 @@ def fire_tim_ind_func(filepath, start_year= 1984, final_year= 2019, antecedent= 
         
     return fire_tim_ind
 
+def human_var_interp(var_name, sav_flag= False):
+    
+    # Interpolating population and human density variables from the Silvis et al. data set
+    
+    tmpdf= xarray.open_dataarray("../data/12km/population/silvis/%s.nc"%var_name)
+    popdf_1= tmpdf[0:1].copy(deep= True)
+    for i in range(6):
+        popdf_1= xarray.concat([popdf_1, tmpdf[0:1].copy().assign_coords(year= [1984+i])], dim= "year")
+    popdf_1= xarray.concat([popdf_1[1:], popdf_1[0:1]], dim= "year")
+
+    popdf_2= xarray.concat([tmpdf.interp(year=[1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999]), tmpdf[1:2], \
+                                tmpdf.interp(year=[2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009])], dim= "year")
+
+    popdf_3= tmpdf[2:].copy(deep= True)
+    for i in range(10):
+        popdf_3= xarray.concat([popdf_3, tmpdf[2:].copy().assign_coords(year= [2011+i])], dim= "year")
+        
+    popdf_tot= xarray.concat([popdf_1, popdf_2, popdf_3], dim= "year")
+    if sav_flag:
+        popdf_tot.to_netcdf("../data/12km/population/%s_interp.nc"%var_name)
+        print("Saved interpolated .nc file for %s"%var_name)
+    else:
+        return popdf_tot
+
 def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L3', l4indx= None, tscale= "yearly", savg= True, start_year= 1984, final_year= 2019, burnarr_len= 0):
     
     # returns an array of climate predictor variable data indexed by season
@@ -424,7 +448,9 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
                      20: ["climate/ucla_era5_wrf/windmax_max3.nc"], 21: ["population/campdist.nc"], 22: ["population/campnum.nc"], 23: ["population/roaddist.nc"], \
                      24: ["climate/ucla_era5_wrf/vpd_max3.nc"], 25: ["climate/ucla_era5_wrf/vpd_max7.nc"], 26: ["climate/ucla_era5_wrf/tmax_max3.nc"], \
                      27: ["climate/ucla_era5_wrf/tmax_max7.nc"], 28: ["climate/ucla_era5_wrf/tmin_max3.nc"], 29: ["climate/ucla_era5_wrf/tmin_max7.nc"], \
-                     30: ["climate/ucla_era5_wrf/ffwi_max7.nc"], 31: ["topography/slope.nc"], 32: ["topography/southness.nc"]}
+                     30: ["climate/ucla_era5_wrf/ffwi_max7.nc"], 31: ["topography/slope.nc"], 32: ["topography/southness.nc"], 33: ["nsidc/swemean.nc"], 34: ["nsidc/swemax.nc"], \
+                     35: ["climate/primary/tmax.nc", "climate/primary/tmin.nc"], 36: ["landcover/biomass_aboveground.nc"], 37: ["population/silvis/popdensity_interp.nc"], \
+                     38: ["population/silvis/house_density_interp.nc"], 39: ["lightning/strike_density_interp.nc"]}
     pred_season_arr= {1: "warm", 2: "antecedent_lag1", 3: "annual", 4: "static", 5: "moving_average_3mo", 6: "moving_average_4mo", 7: "moving_average_2mo", \
                       8: "antecedent_lag2", 9: "antecedent_avg"} 
                       #be careful about indexing since this is correlated with input for multivariate regression 
@@ -558,6 +584,7 @@ def init_fire_freq_df(firedf, regindx= None, lflag= 'L3', start_year= 1984, fina
                           'RH': [], 'FM1000': [], 'Ant_Tmax': [], 'AvgVPD_3mo': [], 'Avgprec_3mo': [], 'Ant_RH': [], 'CAPE': [], 'Urban': [], 'FFWI_max3': [], \
                           'FFWI_max7': [], 'Tmin': [], 'Camp_dist': [], 'Camp_num': [], 'Road_dist': [], 'Antprec_lag2': [], 'Avgprec_4mo': [], 'Avgprec_2mo': [],\
                           'VPD_max3': [], 'VPD_max7': [], 'Tmax_max3': [], 'Tmax_max7': [], 'Slope': [], 'Southness': [], 'AvgVPD_4mo': [], 'AvgVPD_2mo': [], \
+                          'SWE_mean': [], 'SWE_max': [], 'AntSWE_3mo': [], 'Delta_T': [], 'Biomass': [], 'Popdensity': [], 'Housedensity': [], 'Lightning': [], \
                           'fire_freq': pd.Series(dtype= 'int'), 'month': pd.Series(dtype= 'int'), 'reg_indx': pd.Series(dtype= 'int')})
     
         for r in (1 + np.arange(len(regname), dtype= int)):
@@ -869,11 +896,14 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
                         23: ['Road_dist', 'static'], 24: ['Prec', 'antecedent_lag2', 'Antprec_lag2'], 25: ['Prec', 'moving_average_4mo', 'Avgprec_4mo'], \
                         26: ['Prec', 'moving_average_2mo', 'Avgprec_2mo'], 27: ['VPD_max3', 'warm'], 28: ['VPD_max7', 'warm'], 29: ['Tmax_max3', 'warm'], \
                         30: ['Tmax_max7', 'warm'], 31: ['Tmin_max3', 'warm'], 32: ['Tmin_max7', 'warm'], 33: ['Slope', 'static'], 34:['Southness', 'static'], \
-                        35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo']}
+                        35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo'], 37: ['SWE_mean', 'warm'], 38: ['SWE_max', 'warm'], \
+                        39: ['SWE_mean', 'moving_average_3mo', 'AvgSWE_3mo'], 40: ['Delta_T', 'warm'], 41: ['Biomass', 'static'], 42: ['Popdensity', 'annual'], 43: ['Housedensity', 'annual'], \
+                        44: ['Lightning', 'warm']}
         
         pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, \
                          'Urban': 17, 'FFWI_max3': 18, 'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, \
-                         'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, 'Tmin_max7': 29, 'Slope': 31, 'Southness': 32}
+                         'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, 'Tmin_max7': 29, 'Slope': 31, 'Southness': 32, \
+                         'SWE_mean': 33, 'SWE_max': 34, 'Delta_T': 35, 'Biomass': 36, 'Popdensity': 37, 'Housedensity': 38, 'Lightning': 39}
         pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, \
                          "antecedent_lag2": 8, "antecedent_avg": 9} 
         
@@ -972,12 +1002,13 @@ def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_
                         23: ['Road_dist', 'static'], 24: ['Prec', 'antecedent_lag2', 'Antprec_lag2'], 25: ['Prec', 'moving_average_4mo', 'Avgprec_4mo'], \
                         26: ['Prec', 'moving_average_2mo', 'Avgprec_2mo'], 27: ['VPD_max3', 'warm'], 28: ['VPD_max7', 'warm'], 29: ['Tmax_max3', 'warm'], \
                         30: ['Tmax_max7', 'warm'], 31: ['Tmin_max3', 'warm'], 32: ['Tmin_max7', 'warm'], 33: ['Slope', 'static'], 34:['Southness', 'static'], \
-                        35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo']}
-    pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, \
-                         'Urban': 17, 'FFWI_max3': 18, 'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, \
-                         'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, 'Tmin_max7': 29, 'Slope': 31, 'Southness': 32}
-    pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, \
-                         "antecedent_lag2": 8, "antecedent_avg": 9} 
+                        35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo'], 37: ['SWE_mean', 'warm'], 38: ['SWE_max', 'warm'], \
+                        39: ['SWE_mean', 'moving_average_3mo', 'AvgSWE_3mo'], 40: ['Delta_T', 'warm'], 41: ['Biomass', 'static'], 42: ['Popdensity', 'annual'], 43: ['Housedensity', 'annual'], \
+                        44: ['Lightning', 'warm']}
+    pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, 'Urban': 17, 'FFWI_max3': 18, \
+                     'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, 'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, \
+                     'Tmin_max7': 29, 'Slope': 31, 'Southness': 32, 'SWE_mean': 33, 'SWE_max': 34, 'Delta_T': 35, 'Biomass': 36, 'Popdensity': 37, 'Housedensity': 38, 'Lightning': 39}
+    pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, "antecedent_lag2": 8, "antecedent_avg": 9} 
     
     clim_fire_df= pd.DataFrame([])
     tot_months= (final_year + 1 - start_year)*12

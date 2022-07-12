@@ -977,10 +977,7 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
         rseed= np.random.randint(1000)
     
     if scaled:
-        if tflag:
-            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_rescaled_data.h5'%res)
-        else:
-            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
+        clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
     else:
         if tflag:
             clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_data.h5'%res)
@@ -1216,10 +1213,8 @@ def size_acc_func(pvec, obs_sizes, func_flag= 'gpd'):
     
     if func_flag == 'gpd':
         stat_model= gpd_model
-    elif func_flag == 'lognorm':
-        stat_model= lognorm_model
-    elif func_flag == 'lognorm_gpd':
-        stat_model= lognorm_gpd_model_predict
+    elif func_flag == 'lognormal':
+        stat_model= lognormal_model
         
     pmf_pred= stat_model(pvec).prob(obs_sizes)
     obspmf= tfd.Empirical(obs_sizes)
@@ -1447,7 +1442,7 @@ def ml_fire_freq_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2
                     
                     print("MDN trained for %d epochs"%len(h_ml.history['loss']))
                     mdn.save('../sav_files/grid_freq_runs_%s'%run_id + '/mdn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
-                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_loss']), np.nanmax(h_ml.history['val_zipd_accuracy'])])
+                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_zipd_accuracy'])])
                 
                 elif ml_model == 'dnn':
                     dnn= DNN(layers= 2, neurons= 16)
@@ -1457,10 +1452,10 @@ def ml_fire_freq_hyperparam_tuning(clim_df, negfrac= 0.3, n_iters= 5, bs_arr= [2
                     
                     print("DNN trained for %d epochs"%len(h_ml.history['loss']))
                     dnn.save('../sav_files/grid_freq_runs_%s'%run_id + '/dnn_%s'%bs + '_pfrac_%s'%str(p_frac) + '_iter_run_%d'%(it+1))
-                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_loss']), np.nanmean(h_ml.history['val_recall'])])
+                    list_of_lists.append([it+1, bs, p_frac, len(h_ml.history['loss']), np.nanmean(h_ml.history['val_recall'])])
     
     
-    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Loss", "Val Accuracy/Recall"])
+    hp_df= pd.DataFrame(list_of_lists, columns=["Iteration", "Batch size", "Fire fraction", "Epochs", "Val Accuracy/Recall"])
     
     return hp_df
 
@@ -1701,6 +1696,7 @@ def calib_freq_predict(ml_freq_df, n_regs, tot_months, test_start, test_tot, ml_
         ann_reg_indx_arr= np.ones(len(ann_arr[1:]), dtype= np.int64)*(regindx)
 
         if ml_model == 'mdn':
+        	#calibrate per year and concatenate
             pred_calib_high2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(regindx)['pred_high_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
             pred_calib_low2sig_arr= np.concatenate([np.ceil(np.array(ml_freq_groups.get_group(regindx)['pred_low_2sig'][ann_arr[t]:ann_arr[t+1]])*norm_fac[t]) for t in range(len(ann_arr) - 1)])
 
@@ -1839,9 +1835,9 @@ def fire_loc_func_obs(size_test_df, regindx, start_month, final_month= 432, ml_f
         for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
             predfreq= ml_freq_groups.get_group(regindx)['pred_mean_freq'].loc[[m]].to_numpy()[0].astype(int)
             try:
-                indarr= reg_ind_groups.get_group(m).sort_values(by= ['fire_size'], ascending= False).index.to_numpy()
+                indarr= reg_ind_groups.get_group(m).index.to_numpy() #.sort_values(by= ['fire_size'], ascending= False)
                 if len(indarr) >= predfreq:
-                    fire_loc_arr.append(indarr[:predfreq])
+                    fire_loc_arr.append(np.random.choice(indarr, predfreq, replace= False)) #indarr[:predfreq]
                 else:
                     indarr= np.append(indarr, np.random.choice(indarr, predfreq - len(indarr), replace= True))
                     fire_loc_arr.append(indarr)
@@ -1895,7 +1891,7 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
     else:
         reg_size_df= pd.DataFrame({'mean_size': pd.Series(dtype= 'int'), 'low_1sig_size': pd.Series(dtype= 'int'), 'high_1sig_size': pd.Series(dtype= 'int'), \
                                                                                            'reg_indx': pd.Series(dtype= 'int')})
-        for r in range(n_regions): #tqdm --> removed for hyperparameter runs
+        for r in tqdm(range(n_regions)): #tqdm --> removed for hyperparameter runs
             mean_burnarea_tot= np.zeros(tot_months)
             high_1sig_burnarea_tot= np.zeros(tot_months)
             low_1sig_burnarea_tot= np.zeros(tot_months)
@@ -2319,3 +2315,46 @@ def ann_size_percentile_func(mdn_model, firefile, fire_size_df, X_sizes_dat, ext
         pred_burned_area.append(tf.reduce_sum(samps, axis= 1).numpy())
     
     return pred_burned_area, emp_burned_area
+
+def chi_sq_func(mdn_groups, regindx, dict_flag):
+    
+    # Calculates the chi squared value for each ecoregion given a given dataframe and the appropriate dict labels
+    if dict_flag == 'freq':
+        dict_arr= ['obs_freq', 'pred_mean_freq', 'pred_high_2sig', 'pred_low_2sig']
+        sfac= 4
+    elif dict_flag == 'size':
+        dict_arr= ['obs_size', 'mean_size', 'high_1sig_size', 'low_1sig_size']
+        sfac= 2
+    mdn_ann_df= mdn_groups.get_group(regindx).loc[(mdn_groups.get_group(14)[dict_arr[0]]!=0)]
+    mdn_ann_df= mdn_ann_df.loc[mdn_ann_df[dict_arr[1]]!=0] #effectively removing chi-square contribution for low error terms
+        
+    diff_freq= pow(mdn_ann_df[dict_arr[0]] - mdn_ann_df[dict_arr[1]], 2)
+    err_freq= pow((mdn_ann_df[dict_arr[2]] - mdn_ann_df[dict_arr[3]])/sfac, 2)
+    chisq_freq= diff_freq/err_freq
+    chisq_freq[chisq_freq == np.inf]= 0
+    
+    return chisq_freq
+
+def fire_size_metrics(reg_gpd_size_df, reg_gpd_ext_size_df, firefile, yrarr, regindx, break_month, finalyr= 2020):
+    
+    pred_comb_sizes= np.append(reg_gpd_size_df.groupby('reg_indx').get_group(regindx)['mean_size'].iloc[0:break_month], \
+                                                       reg_gpd_ext_size_df.groupby('reg_indx').get_group(regindx)['mean_size'].iloc[break_month:])
+    pred_std= 0.5*(reg_gpd_size_df.groupby('reg_indx').get_group(regindx)['high_1sig_size'] - \
+                                                                reg_gpd_size_df.groupby('reg_indx').get_group(regindx)['low_1sig_size'])
+    pred_ext_std= 0.5*(reg_gpd_ext_size_df.groupby('reg_indx').get_group(regindx)['high_1sig_size'] - \
+                                                                reg_gpd_ext_size_df.groupby('reg_indx').get_group(regindx)['low_1sig_size'])
+    pred_comb_std= np.append(pred_std.iloc[0:break_month], pred_ext_std.iloc[break_month:])
+    pred_high_1sig= pred_comb_sizes + pred_comb_std
+    pred_low_1sig= pred_comb_sizes - pred_comb_std
+    pred_low_1sig[pred_low_1sig < 0]= 0
+    reg_mon_r_calib= stats.pearsonr(mon_burned_area(firefile, regindx, final_year= finalyr), pred_comb_sizes)[0]
+
+    obs_sizes= np.array([np.sum(mon_burned_area(firefile, regindx, final_year= finalyr)[yrarr[i]:yrarr[i+1]]).values for i in range(len(yrarr) - 1)])
+    pred_ann_sizes, pred_ann_high_1sig, pred_ann_low_1sig= mon_to_ann_size_func(pred_comb_sizes, pred_high_1sig, pred_low_1sig, yrarr)
+    reg_ann_r_calib= stats.pearsonr(obs_sizes, pred_ann_sizes)[0]
+    
+    chisq_size= pow((obs_sizes - pred_ann_sizes), 2)/pow((pred_ann_high_1sig - pred_ann_low_1sig)/2, 2)
+    chisq_size[chisq_size == np.inf]= 0
+    dof_size= len(chisq_size) - 3
+    
+    return reg_mon_r_calib, reg_ann_r_calib, np.nansum(chisq_size)/dof_size
