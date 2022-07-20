@@ -977,7 +977,10 @@ def fire_size_data(res= '12km', dropcols= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'A
         rseed= np.random.randint(1000)
     
     if scaled:
-        clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
+        if tflag:
+            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_rescaled_data.h5'%res)
+        else:
+            clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_rescaled_data.h5'%res) #should be replaced by a function that does the scaling properly and quickly
     else:
         if tflag:
             clim_fire_gdf= pd.read_hdf('../data/clim_fire_size_%s_w2020_data.h5'%res)
@@ -1793,7 +1796,34 @@ def grid_freq_loc_predict(X_test_dat, n_regs, ml_model, start_month, final_month
         
     return freq_df
 
-def fire_loc_func(loc_df, ml_freq_df, X_test_dat, regindx, start_month, final_month= 432, loc_flag= 'ml'):
+def large_freq_scale_fac(fire_size_tot, mdn_mon_freq_df, start_month= 0, final_month= 444):
+    
+    # Calculates the scaling factor to account for the difference between frequency of large fires and the total observed frequency
+    
+    n_regions= 18
+    tot_months= final_month - start_month
+    largefreq_df= pd.DataFrame([])
+    for r in tqdm(range(n_regions)):
+        largefreq_arr=[]
+        for m in range(tot_months):
+            try: 
+                indarr= fire_size_tot.groupby('reg_indx').get_group(r+1).groupby('fire_month').get_group(m)
+                largefreq_arr.append(len(indarr))
+            except:
+                largefreq_arr.append(0)
+
+        obs_freq_scale_fac= largefreq_arr/mdn_mon_freq_df.groupby('reg_indx').get_group(r+1)['obs_freq']
+        obs_freq_scale_fac[obs_freq_scale_fac == np.inf]= 0
+        obs_freq_scale_fac= np.nan_to_num(obs_freq_scale_fac)
+        ml_freq_scale_fac= largefreq_arr/mdn_mon_freq_df.groupby('reg_indx').get_group(r+1)['pred_mean_freq']
+        ml_freq_scale_fac[ml_freq_scale_fac == np.inf]= 0
+        ml_freq_scale_fac= np.nan_to_num(ml_freq_scale_fac)
+        largefreq_df= largefreq_df.append(pd.DataFrame({'obs_large_fire_freq': largefreq_arr, 'obs_freq_scale_fac': obs_freq_scale_fac, 'ml_freq_scale_fac': ml_freq_scale_fac, \
+                                                                                                                                        'reg_indx': (r+1)*np.ones(tot_months, dtype= 'int')}))
+
+    return largefreq_df
+
+def fire_loc_func(loc_df, ml_freq_df, X_test_dat, regindx, start_month, final_month= 432, loc_flag= 'ml', rescale= False, sf_flag= None):
     
     # Predicts the grid scale location of fire frequencies/probabilites for each L3 ecoregion
     
@@ -1804,24 +1834,30 @@ def fire_loc_func(loc_df, ml_freq_df, X_test_dat, regindx, start_month, final_mo
     else:
         freqlabel= 'obs_freq'
     fire_loc_arr= []
+    largefreq_df= pd.read_hdf('../sav_files/large_fire_freq_scale_fac_df.h5')
     
     for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
         if not np.nonzero(loc_df.groupby('reg_indx').get_group(regindx)['freq_arr'].loc[[m - start_month]].to_numpy()[0])[0].size:
             fire_loc_arr.append(np.array([0]))
         else:
-            indarr= np.random.choice(np.nonzero(loc_df.groupby('reg_indx').get_group(regindx)['freq_arr'].loc[[m - start_month]].to_numpy()[0])[0], \
+            if not rescale:
+                indarr= np.random.choice(np.nonzero(loc_df.groupby('reg_indx').get_group(regindx)['freq_arr'].loc[[m - start_month]].to_numpy()[0])[0], \
                                      ml_freq_groups.get_group(regindx)[freqlabel].loc[[m]].to_numpy()[0].astype(int))
+            else:
+                indarr= np.random.choice(np.nonzero(loc_df.groupby('reg_indx').get_group(regindx)['freq_arr'].loc[[m - start_month]].to_numpy()[0])[0], \
+                                     (ml_freq_groups.get_group(regindx)[freqlabel].loc[[m]].to_numpy()*largefreq_df.groupby('reg_indx').get_group(regindx)[sf_flag].loc[[m]].to_numpy())[0].astype(int))
             fire_loc_arr.append(X_test_dat.groupby('reg_indx').get_group(regindx).groupby('month').get_group(m).index.to_numpy()[indarr])
     
     return fire_loc_arr
 
-def fire_loc_func_obs(size_test_df, regindx, start_month, final_month= 432, ml_freq_flag= False, ml_freq_df= None):
+def fire_loc_func_obs(size_test_df, regindx, start_month, final_month= 432, ml_freq_flag= False, ml_freq_df= None, rescale= False, sf_flag= None):
     
     #note the outputs are indices in the size_test_df data frame, not the grid cells in a particular month as in the previous case
     
     tot_months= final_month - start_month
     reg_ind_groups= size_test_df[['fire_size', 'fire_month', 'reg_indx']].groupby('reg_indx').get_group(regindx).groupby('fire_month')
     fire_loc_arr= []
+    largefreq_df= pd.read_hdf('../sav_files/large_fire_freq_scale_fac_df.h5')
     
     if not ml_freq_flag:
         for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
@@ -1833,7 +1869,10 @@ def fire_loc_func_obs(size_test_df, regindx, start_month, final_month= 432, ml_f
     else:
         ml_freq_groups= ml_freq_df.groupby('reg_indx')
         for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
-            predfreq= ml_freq_groups.get_group(regindx)['pred_mean_freq'].loc[[m]].to_numpy()[0].astype(int)
+            if not rescale:
+                predfreq= ml_freq_groups.get_group(regindx)['pred_mean_freq'].loc[[m]].to_numpy()[0].astype(int)
+            else:
+                predfreq= (ml_freq_groups.get_group(regindx)['pred_mean_freq'].loc[[m]].to_numpy()*largefreq_df.groupby('reg_indx').get_group(regindx)[sf_flag].loc[[m]].to_numpy())[0].astype(int) 
             try:
                 indarr= reg_ind_groups.get_group(m).index.to_numpy() #.sort_values(by= ['fire_size'], ascending= False)
                 if len(indarr) >= predfreq:
@@ -1863,7 +1902,7 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 
 def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month= 0, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
                             loc_df= None, loc_flag= 'ml', ml_freq_flag= False, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
-                            debug= False, shap_flag= False, regindx= None, seed= None):
+                            debug= False, shap_flag= False, regindx= None, rescale= False, sf_flag= None, seed= None):
     
     # Given a NN model, the function returns the monthly burned area time series for all L3 regions
     # TODO: include effect of frequency uncertainty
@@ -1902,14 +1941,15 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
                     fire_ind_grid= []
                     ml_param_grid= []
                 else:
-                    fire_loc_arr= fire_loc_func(loc_df, ml_freq_df, X_freq_test_dat, regindx= r+1, start_month= start_month, final_month= final_month, loc_flag= loc_flag)
+                    fire_loc_arr= fire_loc_func(loc_df, ml_freq_df, X_freq_test_dat, regindx= r+1, start_month= start_month, final_month= final_month, loc_flag= loc_flag, rescale= rescale, sf_flag= sf_flag)
             elif freq_flag == 'data':
                 if debug:
                     fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= regindx, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, ml_freq_df= ml_freq_df)
                     fire_ind_grid= []
                     ml_param_grid= []
                 else:
-                    fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= r+1, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, ml_freq_df= ml_freq_df)
+                    fire_loc_arr= fire_loc_func_obs(size_test_df, regindx= r+1, start_month= start_month, final_month= final_month, ml_freq_flag= ml_freq_flag, \
+                                                                                                                                                    ml_freq_df= ml_freq_df, rescale= rescale, sf_flag= sf_flag)
 
             for m in np.linspace(start_month, final_month - 1, tot_months, dtype= np.int64):
                 mindx= m - start_month
@@ -2073,7 +2113,7 @@ def cumm_fire_freq_func(mdn_mon_freq_df, mdn_ann_freq_df, optflag= False, regarr
     return tot_mon_obs_freq_arr, tot_mon_pred_freq_arr, tot_mon_pred_high_2sig_arr, tot_mon_pred_low_2sig_arr, \
                                                                     tot_ann_obs_freq_arr, tot_ann_pred_freq_arr, tot_ann_pred_high_2sig_arr, tot_ann_pred_low_2sig_arr
 
-def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, regarr= None, timebreak= False, breakmon= 252, reg_gpd_ext_size_df= None):
+def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, regarr= None, timebreak= False, breakmon= 252, reg_gpd_ext_size_df= None, rescale= False, sf_flag= None):
     
     #Returns the cummulative monthly and annual fire sizes across the entire study region
     
@@ -2081,6 +2121,7 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
     final_yr= int(tot_months/12) + 1983
     yr_arr= np.arange(0, tot_months + 1, 12)
     reg_mon_r_calib_arr= np.array([stats.pearsonr(mon_burned_area(firefile, r+1, final_year= final_yr), reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'][0:tot_months])[0] for r in range(n_regions)])
+    largefreq_df= pd.read_hdf('../sav_files/large_fire_freq_scale_fac_df.h5')
     
     tot_mon_obs_size_arr= []
     tot_mon_pred_size_arr= []
@@ -2101,7 +2142,10 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
     
     for r in reglist: #tqdm
         tot_mon_obs_size_arr.append(mon_burned_area(firefile, r+1, final_year= final_yr).values)
-        tot_mon_pred_size_arr.append(reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'].to_numpy()[0:tot_months])
+        if not rescale:
+            tot_mon_pred_size_arr.append(reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'].to_numpy()[0:tot_months])
+        else:
+            tot_mon_pred_size_arr.append((reg_size_df.groupby('reg_indx').get_group(r+1)['mean_size'].to_numpy()*largefreq_df.groupby('reg_indx').get_group(r+1)[sf_flag].to_numpy())[0:tot_months])
         tot_mon_pred_1sig_arr.append(0.5*(reg_size_df.groupby('reg_indx').get_group(r+1)['high_1sig_size'].to_numpy() - reg_size_df.groupby('reg_indx').get_group(r+1)['low_1sig_size'].to_numpy())[0:tot_months])
         tot_ann_obs_size_arr.append(np.array([np.sum(tot_mon_obs_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
         tot_ann_pred_size_arr.append(np.array([np.sum(tot_mon_pred_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
@@ -2127,7 +2171,11 @@ def cumm_fire_size_func(firefile, reg_size_df, tot_months= 432, optflag= False, 
             reglist= np.arange(n_regions)
     
         for r_ext in reglist: #tqdm
-            tot_mon_pred_ext_size_arr.append(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['mean_size'].to_numpy()[0:tot_months])
+            if not rescale:
+                tot_mon_pred_ext_size_arr.append(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['mean_size'].to_numpy()[0:tot_months])
+            else:
+                tot_mon_pred_ext_size_arr.append((reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['mean_size'].to_numpy()* \
+                                                                          largefreq_df.groupby('reg_indx').get_group(r_ext+1)[sf_flag].to_numpy())[0:tot_months])
             tot_mon_pred_ext_1sig_arr.append(0.5*(reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['high_1sig_size'].to_numpy() - \
                                                   reg_gpd_ext_size_df.groupby('reg_indx').get_group(r_ext+1)['low_1sig_size'].to_numpy())[0:tot_months])
             tot_ann_pred_ext_size_arr.append(np.array([np.sum(tot_mon_pred_ext_size_arr[iind][yr_arr[i]:yr_arr[i+1]]) for i in range(len(yr_arr) - 1)]))
