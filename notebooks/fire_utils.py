@@ -450,7 +450,7 @@ def clim_pred_var(pred_file_indx, pred_seas_indx= None, regindx= None, lflag= 'L
                      27: ["climate/ucla_era5_wrf/tmax_max7.nc"], 28: ["climate/ucla_era5_wrf/tmin_max3.nc"], 29: ["climate/ucla_era5_wrf/tmin_max7.nc"], \
                      30: ["climate/ucla_era5_wrf/ffwi_max7.nc"], 31: ["topography/slope.nc"], 32: ["topography/southness.nc"], 33: ["nsidc/swemean.nc"], 34: ["nsidc/swemax.nc"], \
                      35: ["climate/primary/tmax.nc", "climate/primary/tmin.nc"], 36: ["landcover/biomass_aboveground.nc"], 37: ["population/silvis/popdensity_interp.nc"], \
-                     38: ["population/silvis/house_density_interp.nc"], 39: ["lightning/strike_density_interp.nc"]}
+                     38: ["population/silvis/house_density_interp.nc"], 39: ["lightning/strike_density_interp.nc"], 40: ["climate/ucla_era5_wrf/rh_min3.nc"]}
     pred_season_arr= {1: "warm", 2: "antecedent_lag1", 3: "annual", 4: "static", 5: "moving_average_3mo", 6: "moving_average_4mo", 7: "moving_average_2mo", \
                       8: "antecedent_lag2", 9: "antecedent_avg"} 
                       #be careful about indexing since this is correlated with input for multivariate regression 
@@ -897,13 +897,13 @@ def init_fire_alloc_gdf(firedat, firegdf, res= '24km', start_year= 1984, final_y
                         26: ['Prec', 'moving_average_2mo', 'Avgprec_2mo'], 27: ['VPD_max3', 'warm'], 28: ['VPD_max7', 'warm'], 29: ['Tmax_max3', 'warm'], \
                         30: ['Tmax_max7', 'warm'], 31: ['Tmin_max3', 'warm'], 32: ['Tmin_max7', 'warm'], 33: ['Slope', 'static'], 34:['Southness', 'static'], \
                         35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo'], 37: ['SWE_mean', 'warm'], 38: ['SWE_max', 'warm'], \
-                        39: ['SWE_mean', 'moving_average_3mo', 'AvgSWE_3mo'], 40: ['Delta_T', 'warm'], 41: ['Biomass', 'static'], 42: ['Popdensity', 'annual'], 43: ['Housedensity', 'annual'], \
-                        44: ['Lightning', 'warm']}
+                        39: ['SWE_mean', 'moving_average_3mo', 'AvgSWE_3mo'], 40: ['Delta_T', 'warm'], 41: ['Biomass', 'static'], 42: ['Popdensity', 'annual'], \
+                        43: ['Housedensity', 'annual'], 44: ['Lightning', 'warm'], 45: ['RH_min3', 'warm']}
         
         pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, \
                          'Urban': 17, 'FFWI_max3': 18, 'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, \
                          'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, 'Tmin_max7': 29, 'Slope': 31, 'Southness': 32, \
-                         'SWE_mean': 33, 'SWE_max': 34, 'Delta_T': 35, 'Biomass': 36, 'Popdensity': 37, 'Housedensity': 38, 'Lightning': 39}
+                         'SWE_mean': 33, 'SWE_max': 34, 'Delta_T': 35, 'Biomass': 36, 'Popdensity': 37, 'Housedensity': 38, 'Lightning': 39, 'RH_min3': 40}
         pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, \
                          "antecedent_lag2": 8, "antecedent_avg": 9} 
         
@@ -1003,11 +1003,11 @@ def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_
                         26: ['Prec', 'moving_average_2mo', 'Avgprec_2mo'], 27: ['VPD_max3', 'warm'], 28: ['VPD_max7', 'warm'], 29: ['Tmax_max3', 'warm'], \
                         30: ['Tmax_max7', 'warm'], 31: ['Tmin_max3', 'warm'], 32: ['Tmin_max7', 'warm'], 33: ['Slope', 'static'], 34:['Southness', 'static'], \
                         35: ['VPD', 'moving_average_4mo', 'AvgVPD_4mo'], 36: ['VPD', 'moving_average_2mo', 'AvgVPD_2mo'], 37: ['SWE_mean', 'warm'], 38: ['SWE_max', 'warm'], \
-                        39: ['SWE_mean', 'moving_average_3mo', 'AvgSWE_3mo'], 40: ['Delta_T', 'warm'], 41: ['Biomass', 'static'], 42: ['Popdensity', 'annual'], 43: ['Housedensity', 'annual'], \
-                        44: ['Lightning', 'warm']}
+                        39: ['SWE_mean', 'moving_average_3mo', 'AvgSWE_3mo'], 40: ['Delta_T', 'warm'], 41: ['Biomass', 'static'], 42: ['Popdensity', 'annual'], \
+                        43: ['Housedensity', 'annual'], 44: ['Lightning', 'warm'], 45: ['RH_min3', 'warm']}
     pred_findx_arr= {'Tmax': 1, 'VPD': 2, 'Prec': 3, 'Forest': 6, 'Solar': 7, 'Wind': 20, 'Elev': 9, 'Grassland': 10, 'RH': 14, 'FM1000': 15, 'CAPE': 16, 'Urban': 17, 'FFWI_max3': 18, \
                      'FFWI_max7': 30, 'Tmin': 19, 'Camp_dist': 21, 'Camp_num': 22, 'Road_dist': 23, 'VPD_max3': 24, 'VPD_max7': 25, 'Tmax_max3': 26, 'Tmax_max7': 27, 'Tmin_max3': 28, \
-                     'Tmin_max7': 29, 'Slope': 31, 'Southness': 32, 'SWE_mean': 33, 'SWE_max': 34, 'Delta_T': 35, 'Biomass': 36, 'Popdensity': 37, 'Housedensity': 38, 'Lightning': 39}
+                     'Tmin_max7': 29, 'Slope': 31, 'Southness': 32, 'SWE_mean': 33, 'SWE_max': 34, 'Delta_T': 35, 'Biomass': 36, 'Popdensity': 37, 'Housedensity': 38, 'Lightning': 39, 'RH_min3': 40}
     pred_sindx_arr= {"warm": 1, "antecedent_lag1": 2, "annual": 3, "static": 4, "moving_average_3mo": 5, "moving_average_4mo": 6, "moving_average_2mo": 7, "antecedent_lag2": 8, "antecedent_avg": 9} 
     
     clim_fire_df= pd.DataFrame([])
@@ -1142,17 +1142,22 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
     
     return clim_df
 
-def drop_col_func(mod_type, add_var_flag= False, add_var_list= None):
-    dropcollist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', \
-                             'Tmax_max7', 'VPD_max7', 'Tmin_max7']
+def drop_col_func(mod_type, rh_flag= False, add_var_flag= False, add_var_list= None):
+    
+    if not rh_flag:
+        dropcollist= ['CAPE', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', \
+                             'Tmax_max7', 'VPD_max7', 'Tmin_max7', 'RH_min3']
+    else:
+        dropcollist= ['CAPE', 'Solar', 'Ant_Tmax', 'VPD', 'AvgVPD_3mo', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', \
+                             'Tmax_max7', 'VPD_max7', 'Tmin_max7', 'VPD_max3']
     if mod_type == 'minimal':
         dropcollist.extend(['Camp_dist', 'Camp_num', 'Slope', 'Southness', 'VPD', 'Tmax', 'Tmax_max3', 'Tmin_max3', \
                             'Prec', 'Elev', 'Tmin', 'Avgprec_3mo', 'Forest', 'Urban'])
     elif mod_type == 'normal':
         if not add_var_flag:
-            dropcollist.extend(['AvgVPD_2mo'])
+            dropcollist.extend(['AvgVPD_2mo', 'Camp_num', 'Elev'])
         else:
-            dropcollist.extend(np.append(['AvgVPD_2mo'], add_var_list))
+            dropcollist.extend(np.append(['AvgVPD_2mo', 'Camp_num', 'Elev'], add_var_list))
     
     return dropcollist
 
