@@ -2408,7 +2408,7 @@ def fire_size_metrics(reg_gpd_size_df, reg_gpd_ext_size_df, firefile, yrarr, reg
     
     return reg_mon_r_calib, reg_ann_r_calib, np.nansum(chisq_size)/dof_size
 
-def ml_fire_freq_cv(clim_fire_freq_df, n_iters= 5, freq_data= 'downsampled', dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', \
+def ml_fire_freq_cv(n_iters= 5, freq_data= 'downsampled', dropcols= ['index', 'Solar', 'Ant_Tmax', 'RH', 'Ant_RH', 'FFWI_max7', 'Avgprec_4mo', 'Avgprec_2mo', 'AvgVPD_4mo', 'AvgVPD_2mo', \
                         'Tmax_max7', 'VPD_max7', 'Tmin_max7', 'Elev', 'Delta_T', 'CAPE', 'Southness'], tot_test_months= 12, ml_model= 'mdn', loro_ind= None, run_id= None):
     
     list_of_lists = []
@@ -2421,7 +2421,7 @@ def ml_fire_freq_cv(clim_fire_freq_df, n_iters= 5, freq_data= 'downsampled', dro
         end_month= startmonarr[it] + tot_test_months
         
         if freq_data == 'downsampled':
-            clim_df= clim_fire_freq_df.copy(deep= True)
+            clim_df= pd.read_hdf('../data/clim_fire_freq_12km_w2020_data.h5') #clim_fire_freq_df.copy(deep= True)
             clim_df= clim_df.dropna().reset_index().drop(columns=['index'])
             fire_freq_test_df= clim_df[(clim_df.month >= startmonarr[it]) & (clim_df.month < end_month)]
             freq_train_df= clim_df.drop(fire_freq_test_df.index)
@@ -2466,10 +2466,10 @@ def ml_fire_freq_cv(clim_fire_freq_df, n_iters= 5, freq_data= 'downsampled', dro
             negfrac= 0.3
             bs= 8192
             p_frac= 0.3
-            clim_df= clim_fire_freq_df.copy(deep= True)
+            clim_df= pd.read_hdf('../data/clim_fire_freq_12km_w2020_data.h5') #clim_fire_freq_df.copy(deep= True)
             clim_df= clim_df.dropna().reset_index().drop(columns=['index'])
 
-            fire_freq_test_df= clim_df[(clim_df.month >= start_month) & (clim_df.month < end_month)]
+            fire_freq_test_df= clim_df[(clim_df.month >= startmonarr[it]) & (clim_df.month < end_month)]
             fire_freq_train_df= clim_df.drop(fire_freq_test_df.index)
             if loro_ind != None:
                 fire_freq_train_df[fire_freq_train_df != loro_ind]
