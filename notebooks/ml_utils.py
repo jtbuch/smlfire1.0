@@ -1901,7 +1901,7 @@ def loc_ind_func(loc_df, ml_freq_df, X_test_dat, n_regs, start_month= 0, final_m
 ## ----------------------------------------------------------------- Calibration and prediction functions for fire size ----------------------------------------------------------------------------
 
 
-def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month= 0, final_month= 432, freq_flag= 'ml', nsamps= 1000, \
+def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start_month= 0, final_month= 432, freq_flag= 'ml', nsamps= 1000, ptile_flag= False,\
                             loc_df= None, loc_flag= 'ml', ml_freq_flag= False, ml_freq_df= None, X_freq_test_dat= None, size_test_df= None, X_size_test_dat= None, \
                             debug= False, shap_flag= False, regindx= None, rescale= False, sf_flag= None, seed= None):
     
@@ -1976,42 +1976,70 @@ def grid_size_pred_func(mdn_model, stat_model, max_size_arr, sum_size_arr, start
 
                     size_samp_arr= tf.reduce_mean(samp_arr, axis= 0).numpy()
                     std_size_arr= tf.math.reduce_std(samp_arr, axis= 0).numpy()
-                    high_1sig_err= deepcopy(std_size_arr)
-                    tot_l1sig_arr= np.sqrt(np.sum(std_size_arr**2))
+                    
+                    if not ptile_flag:
+                        high_1sig_err= deepcopy(std_size_arr) #tfp.stats.percentile(tf.reduce_sum(samps, axis= 1), 95, axis= 0)
+                        tot_l1sig_arr= np.sqrt(np.sum(std_size_arr**2))
 
-                    if debug:
-                        size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx]
-                        high_1sig_err[high_1sig_err > max_size_arr[regindx]]= max_size_arr[regindx] 
-                        tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
+                        if debug:
+                            size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx]
+                            high_1sig_err[high_1sig_err > max_size_arr[regindx]]= max_size_arr[regindx] 
+                            tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
 
-                        if np.sum(size_samp_arr) > 3*sum_size_arr[regindx][m]:
-                            mean_burnarea_tot[mindx]= sum_size_arr[regindx][m]
+                            if np.sum(size_samp_arr) > 3*sum_size_arr[regindx][m]:
+                                mean_burnarea_tot[mindx]= sum_size_arr[regindx][m]
+                            else:
+                                mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
                         else:
-                            mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+                            size_samp_arr[size_samp_arr > max_size_arr[r]]= max_size_arr[r]
+                            high_1sig_err[high_1sig_err > max_size_arr[r]]= max_size_arr[r] 
+                            tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
+
+                            if np.sum(size_samp_arr) > 3*sum_size_arr[r][m]:
+                                mean_burnarea_tot[mindx]= sum_size_arr[r][m]
+                            else:
+                                mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+
+                        high_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] + tot_h1sig_arr
+                        low_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] - tot_l1sig_arr
+                        if (mean_burnarea_tot[mindx] - tot_l1sig_arr) < 0: 
+                            low_1sig_burnarea_tot[mindx]= 0
+
+                        #if np.max(size_samp_arr) > max_size_arr[i]:
+                        #    max_size_arr[i]= np.max(size_samp_arr)
+
+                        #while np.sum(size_samp_arr) > 2*sum_size_arr[i]:
+                        #    rseed= np.random.randint(10000)
+                        #    size_samp_arr= tf.reduce_mean(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
+                        #    std_size_arr= tf.math.reduce_std(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
+                        #if np.sum(size_samp_arr) > sum_size_arr[i]:
+                        #    sum_size_arr[i]= np.sum(size_samp_arr)
                     else:
-                        size_samp_arr[size_samp_arr > max_size_arr[r]]= max_size_arr[r]
-                        high_1sig_err[high_1sig_err > max_size_arr[r]]= max_size_arr[r] 
-                        tot_h1sig_arr= np.sqrt(np.sum(high_1sig_err**2))
-
-                        if np.sum(size_samp_arr) > 3*sum_size_arr[r][m]:
-                            mean_burnarea_tot[mindx]= sum_size_arr[r][m]
+                        if debug:
+                            tot_h1sig_arr= tfp.stats.percentile(tf.reduce_sum(tf.clip_by_value(samp_arr, clip_value_min= 0, clip_value_max= 3*max_size_arr[r]), axis= 1), 16, axis= 0).numpy()
                         else:
-                            mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+                            tot_h1sig_arr= tfp.stats.percentile(tf.reduce_sum(tf.clip_by_value(samp_arr, clip_value_min= 0, clip_value_max= 3*max_size_arr[r]), axis= 1), 16, axis= 0).numpy()
+                        tot_l1sig_arr= deepcopy(tot_h1sig_arr)
+                        
+                        if debug:
+                            size_samp_arr[size_samp_arr > max_size_arr[regindx]]= max_size_arr[regindx] 
 
-                    high_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] + tot_h1sig_arr
-                    low_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] - tot_l1sig_arr
-                    if (mean_burnarea_tot[mindx] - tot_l1sig_arr) < 0: 
-                        low_1sig_burnarea_tot[mindx]= 0
+                            if np.sum(size_samp_arr) > 3*sum_size_arr[regindx][m]:
+                                mean_burnarea_tot[mindx]= sum_size_arr[regindx][m]
+                            else:
+                                mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
+                        else:
+                            size_samp_arr[size_samp_arr > max_size_arr[r]]= max_size_arr[r]
+                            
+                            if np.sum(size_samp_arr) > 3*sum_size_arr[r][m]:
+                                mean_burnarea_tot[mindx]= sum_size_arr[r][m]
+                            else:
+                                mean_burnarea_tot[mindx]= np.sum(size_samp_arr)
 
-                    #if np.max(size_samp_arr) > max_size_arr[i]:
-                    #    max_size_arr[i]= np.max(size_samp_arr)
-
-                    #while np.sum(size_samp_arr) > 2*sum_size_arr[i]:
-                    #    rseed= np.random.randint(10000)
-                    #    size_samp_arr= tf.reduce_mean(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
-                    #    std_size_arr= tf.math.reduce_std(stat_model(ml_param_vec).sample(10000, seed= tfp.random.sanitize_seed(rseed)), axis= 0).numpy()
-                    #if np.sum(size_samp_arr) > sum_size_arr[i]:
-                    #    sum_size_arr[i]= np.sum(size_samp_arr)
+                        high_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] + tot_h1sig_arr
+                        low_1sig_burnarea_tot[mindx]= mean_burnarea_tot[mindx] - tot_l1sig_arr
+                        if (mean_burnarea_tot[mindx] - tot_l1sig_arr) < 0: 
+                            low_1sig_burnarea_tot[mindx]= 0
 
             if debug:
                 reg_indx_arr= (regindx)*np.ones(tot_months, dtype= np.int64)
@@ -2364,6 +2392,34 @@ def ann_size_percentile_func(mdn_model, firefile, fire_size_df, X_sizes_dat, ext
         pred_burned_area.append(tf.reduce_sum(samps, axis= 1).numpy())
     
     return pred_burned_area, emp_burned_area
+
+def size_unc_percentile_func(mdn_model, firefile, fire_size_df, X_sizes_dat, extyeararr, reglist= None, inf_fac= 3.0, start_month= 0, final_month= 444, rseed= 99):
+    
+    # Calculates the mean and higher percentiles of the fire size distribution for annual area burned across different regions
+    
+    n_regions= 18
+    emp_burned_area= [] 
+    pred_burned_area= []
+    if reglist == None:
+        reglist= range(n_regions)
+    
+    for r in tqdm(reglist):
+        fire_size_groups= fire_size_df.groupby('reg_indx').get_group(r+1)
+        for m in range(len(extyeararr)):
+            smon= (extyeararr[m] - 1984)*12 
+            tmpregarr= np.hstack(np.hstack(fire_loc_func_obs(fire_size_df, regindx= r+1, start_month= start_month, final_month= final_month)[smon:smon+12]))
+            emp_burned_area.append(np.sum(mon_burned_area(firefile, regindx= r+1, final_year= 2020)[smon:smon+12]))
+
+            if np.count_nonzero(tmpregarr) == 0:
+                pred_burned_area.append(tf.zeros([1000]).numpy())
+            else:
+                tmpregarr= tmpregarr[tmpregarr!=0]
+                params= mdn_model.predict(x= np.array(X_sizes_dat.iloc[tmpregarr], dtype= np.float32))
+                samps= tf.clip_by_value(gpd_model(params).sample(1000, seed= rseed), clip_value_min= 0, clip_value_max= inf_fac*fire_size_groups['fire_size'].max()/1e6)
+
+                pred_burned_area.append(tf.reduce_sum(samps, axis= 1).numpy())
+    
+    return pred_burned_area #, emp_burned_area
 
 def chi_sq_func(mdn_groups, regindx, dict_flag):
     
