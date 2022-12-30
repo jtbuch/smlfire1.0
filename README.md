@@ -12,3 +12,5 @@ Code requirements:
 * tensorflow-probability=0.15.0
 * scipy=1.7.0
 * numpy=1.20.0
+
+Use the [package-list.txt](https://github.com/jtbuch/smlfire1.0/blob/master/package-list.txt) file to set up a compatible conda environment for execution.
