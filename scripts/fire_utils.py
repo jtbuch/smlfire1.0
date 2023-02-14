@@ -143,35 +143,57 @@ def ecoprovince_grid_mask(variable, region, plot= True):
     else:
         return masked_variable
     
-def bailey_ecoprovince_shp(region, lflag = 'L3', coord= False):
+def bailey_ecoprovince_shp(region, lflag = 'L3', sbflag= True, coord= False):
     
     #reading in the shape file publcily available on the EPA website here: https://www.epa.gov/eco-research/level-iii-and-iv-ecoregions-continental-united-states
-    
+    #sbflag = False for plotting without state boundaries
     if lflag == 'L3':
-        ecoregionshp= gpd.read_file("../data/us_eco_l3_state_boundaries/us_eco_l3_state_boundaries.shp", crs="epsg:5070")
+        if not sbflag:
+            ecoregionshp= gpd.read_file("../data/us_eco_l3/us_eco_l3.shp", crs="epsg:5070")
+        else:
+            ecoregionshp= gpd.read_file("../data/us_eco_l3_state_boundaries/us_eco_l3_state_boundaries.shp", crs="epsg:5070")
     elif lflag == 'L4':
         ecoregionshp= gpd.read_file("../data/us_eco_l4_state_boundaries/us_eco_l4.shp", crs="epsg:5070")
     
-    if region == "ca_south_coast":
-        regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
-                 ((ecoregionshp['US_L3CODE'] == '8')|(ecoregionshp['US_L3CODE'] == '85'))]
-    elif region == "ca_cent_coast":
-        regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&(ecoregionshp['US_L3CODE'] == '6')]
-    elif region == "ca_sierra":
-        regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
-                 ((ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')|(ecoregionshp['US_L3CODE'] == '9'))]
-    elif region == "ca_north_coast":
-        regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
-                 ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '78'))];
-    elif region == "ca_total":
-        regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
-                 ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')\
-                  |(ecoregionshp['US_L3CODE'] == '6')|(ecoregionshp['US_L3CODE'] == '8')|(ecoregionshp['US_L3CODE'] == '9')\
-                  |(ecoregionshp['US_L3CODE'] == '78')|(ecoregionshp['US_L3CODE'] == '85'))];
-    elif region == "pnw_mts":
-        regshp= ecoregionshp[((ecoregionshp['STATE_NAME'] == 'Washington')|(ecoregionshp['STATE_NAME'] == 'Oregon'))&((ecoregionshp['US_L3CODE'] == '1')| \
-            (ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '9')|(ecoregionshp['US_L3CODE'] == '77')|(ecoregionshp['US_L3CODE'] == '78'))]
-    elif region == "columbia_plateau":
+    if sbflag:
+        if region == "ca_south_coast":
+            regshp= ecoregionshp[((ecoregionshp['US_L3CODE'] == '8')|(ecoregionshp['US_L3CODE'] == '85'))]
+        elif region == "ca_cent_coast":
+            regshp= ecoregionshp[(ecoregionshp['US_L3CODE'] == '6')]
+        elif region == "ca_sierra":
+            regshp= ecoregionshp[((ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')|(ecoregionshp['US_L3CODE'] == '9'))]
+        elif region == "ca_north_coast":
+            regshp= ecoregionshp[((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '78'))];
+        elif region == "pnw_mts":
+            regshp= ecoregionshp[((ecoregionshp['US_L3CODE'] == '1')| \
+                (ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '9')|(ecoregionshp['US_L3CODE'] == '77')|(ecoregionshp['US_L3CODE'] == '78'))]
+        elif region == "northern_great_plains":
+            regshp= ecoregionshp[((ecoregionshp['US_L3CODE'] == '42')|(ecoregionshp['US_L3CODE'] == '43'))]
+    else: 
+        if region == "ca_south_coast":
+            regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
+                     ((ecoregionshp['US_L3CODE'] == '8')|(ecoregionshp['US_L3CODE'] == '85'))]
+        elif region == "ca_cent_coast":
+            regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&(ecoregionshp['US_L3CODE'] == '6')]
+        elif region == "ca_sierra":
+            regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
+                     ((ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')|(ecoregionshp['US_L3CODE'] == '9'))]
+        elif region == "ca_north_coast":
+            regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
+                     ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '78'))];
+        elif region == "ca_total":
+            regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
+                     ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')\
+                      |(ecoregionshp['US_L3CODE'] == '6')|(ecoregionshp['US_L3CODE'] == '8')|(ecoregionshp['US_L3CODE'] == '9')\
+                      |(ecoregionshp['US_L3CODE'] == '78')|(ecoregionshp['US_L3CODE'] == '85'))];
+        elif region == "pnw_mts":
+            regshp= ecoregionshp[((ecoregionshp['STATE_NAME'] == 'Washington')|(ecoregionshp['STATE_NAME'] == 'Oregon'))&((ecoregionshp['US_L3CODE'] == '1')| \
+                (ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '9')|(ecoregionshp['US_L3CODE'] == '77')|(ecoregionshp['US_L3CODE'] == '78'))]
+        elif region == "northern_great_plains":
+            regshp= ecoregionshp[((ecoregionshp['STATE_NAME'] == 'Montana')|(ecoregionshp['STATE_NAME'] == 'Wyoming'))&\
+                             ((ecoregionshp['US_L3CODE'] == '42')|(ecoregionshp['US_L3CODE'] == '43'))]
+            
+    if region == "columbia_plateau":
         regshp= ecoregionshp[(ecoregionshp['US_L3CODE'] == '10')]
     elif region == "northern_rockies":
         regshp= ecoregionshp[(ecoregionshp['US_L3CODE'] == '15')|(ecoregionshp['US_L3CODE'] == '41')]
@@ -191,9 +213,6 @@ def bailey_ecoprovince_shp(region, lflag = 'L3', coord= False):
         regshp= ecoregionshp[(ecoregionshp['US_L3CODE'] == '13')]
     elif region == "ch_desert":
         regshp= ecoregionshp[(ecoregionshp['US_L3CODE'] == '24')]
-    elif region == "northern_great_plains":
-        regshp= ecoregionshp[((ecoregionshp['STATE_NAME'] == 'Montana')|(ecoregionshp['STATE_NAME'] == 'Wyoming'))&\
-                             ((ecoregionshp['US_L3CODE'] == '42')|(ecoregionshp['US_L3CODE'] == '43'))]
     elif region == "high_plains":
         regshp= ecoregionshp[(ecoregionshp['US_L3CODE'] == '25')]
     elif region == "sw_tablelands":
