@@ -155,7 +155,7 @@ def bailey_ecoprovince_shp(region, lflag = 'L3', sbflag= True, coord= False):
     elif lflag == 'L4':
         ecoregionshp= gpd.read_file("../data/us_eco_l4_state_boundaries/us_eco_l4.shp", crs="epsg:5070")
     
-    if sbflag:
+    if not sbflag:
         if region == "ca_south_coast":
             regshp= ecoregionshp[((ecoregionshp['US_L3CODE'] == '8')|(ecoregionshp['US_L3CODE'] == '85'))]
         elif region == "ca_cent_coast":
@@ -180,7 +180,7 @@ def bailey_ecoprovince_shp(region, lflag = 'L3', sbflag= True, coord= False):
                      ((ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')|(ecoregionshp['US_L3CODE'] == '9'))]
         elif region == "ca_north_coast":
             regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
-                     ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '78'))];
+                     ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '78'))]
         elif region == "ca_total":
             regshp= ecoregionshp[(ecoregionshp['STATE_NAME'] == 'California')&
                      ((ecoregionshp['US_L3CODE'] == '1')|(ecoregionshp['US_L3CODE'] == '4')|(ecoregionshp['US_L3CODE'] == '5')\
