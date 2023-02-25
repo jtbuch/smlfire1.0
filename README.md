@@ -12,7 +12,7 @@ The scripts may be executed in the following order:
 1. [ml_grid_plot_file.ipynb](https://github.com/jtbuch/smlfire1.0/blob/master/scripts/ml_grid_plot_file.ipynb) -- for reproducing all the plots in the preprint and Supplementary Information;
 2. [ml_grid_fire_frequency_file.ipynb](https://github.com/jtbuch/smlfire1.0/blob/master/scripts/ml_grid_plot_file.ipynb) -- for training the fire frequency MDN, calculating the SHAP values, and performing model cross-validation;
 3. [ml_grid_fire_size_file.ipynb](https://github.com/jtbuch/smlfire1.0/blob/master/scripts/ml_grid_plot_file.ipynb) -- same as above but for the fire size MDN;
-4. [prelim_data_processing_and_analysis.ipynb](https://github.com/jtbuch/smlfire1.0/blob/master/scripts/prelim_data_processing_and_analysis.ipynb) for pre-processing the raw fire and climate data; the data is then organized into pandas dataframes for training machine learning models.
+4. [prelim_data_processing_and_analysis.ipynb](https://github.com/jtbuch/smlfire1.0/blob/master/scripts/prelim_data_processing_and_analysis.ipynb) -- for pre-processing the raw fire and climate data; the data is then organized into pandas dataframes for training machine learning models.
 
 Code requirements:
 * python=3.7.11
