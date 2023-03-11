@@ -1009,7 +1009,7 @@ def init_eff_clim_fire_df(firegdf, start_month= 372, tot_test_months= 60, hyp_fl
     
     return newdf
 
-def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None):
+def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None, seas_arr= None):
     
     # Initializes a dataframe with climate and fire frequency information at each grid point; startmon/totmonths is for test data!
     
@@ -1085,22 +1085,36 @@ def init_clim_fire_grid(res= '12km', tscale= 'monthly', start_year= 1984, final_
                             X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
                             Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),),)
             else:
-                var_arr= xarray.DataArray(data= np.nanmean(clim_var_arr, axis= 0),
+                var_arr= xarray.DataArray(data= np.nanmean(clim_var_arr[seas_arr], axis= 0),
+                                dims=["Y", "X"],
+                                coords=dict(
+                                X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                                Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),),)
+        
+        elif tscale == 'seasonal':
+            if seas_var == 'static':
+                var_arr= xarray.DataArray(data= clim_var_arr,
                             dims=["Y", "X"],
                             coords=dict(
                             X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
                             Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),),)
+            else:
+                var_arr= xarray.DataArray(data= np.nanmean(clim_var_arr[seas_arr], axis= 0),
+                                dims=["Y", "X"],
+                                coords=dict(
+                                X=(["X"], np.linspace(0, 154, 155, dtype= np.int64)),
+                                Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),),)
 
         var_df= var_arr.to_dataframe(name= gdf_var).reset_index() #.dropna()
         clim_fire_df= pd.concat([clim_fire_df, var_df[gdf_var]], axis= 1)
         
     return clim_fire_df
 
-def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None, threshold= None):
+def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, final_year= 2019, scaled= False, startmon= None, totmonths= None, threshold= None, seas_arr= None):
     
     #creates a dataframe with climate variables and fire frequencies at monthly and annual resolutions
     
-    clim_df= init_clim_fire_grid(res, tscale, start_year, final_year, scaled, startmon, totmonths) #time: ~ 8 mins
+    clim_df= init_clim_fire_grid(res, tscale, start_year, final_year, scaled, startmon, totmonths, seas_arr) #time: ~ 8 mins
     tot_months= (final_year + 1 - start_year)*12
     
     if tscale == 'monthly':
@@ -1116,7 +1130,7 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
                 Y=(["Y"], np.linspace(0, 207, 208, dtype= np.int64)),
                 time= (["month"], np.linspace(0, tot_months - 1, tot_months, dtype= np.int64)),),)
         tmax_df= tmax_arr.to_dataframe(name='Tmax').reset_index() #.dropna()
-
+        
         coord_df= tmax_df[['X', 'Y', 'month']]
         coord_df['fire_freq']= np.zeros_like(len(coord_df), dtype= int)
         if final_year != 2020:
@@ -1126,15 +1140,16 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
                                                                                                                                                ignore_index= True)
         if threshold != None:
             fires_df= fires_df[fires_df['fire_size']/1e6 > 4].reset_index().drop(columns= ['index'])
-        
+            
         for ind in tqdm(range(len(fires_df))):
             freqind= coord_df[(coord_df.X == fires_df.loc[[ind]]['grid_x'][ind]) & (coord_df.Y == fires_df.loc[[ind]]['grid_y'][ind]) \
-                                                                   & (coord_df.month == fires_df.loc[[ind]]['fire_month'][ind])].index[0]
+                                                                       & (coord_df.month == fires_df.loc[[ind]]['fire_month'][ind])].index[0]
             coord_df.loc[freqind, 'fire_freq']+= 1
-
+            
         clim_df= pd.concat([clim_df, coord_df['fire_freq'], coord_df['month'], clim_fire_grid_df['reg_indx'], coord_df['X'], coord_df['Y']], axis=1)
+        
     
-    elif tscale == 'longterm':
+    elif (tscale == 'longterm') | (tscale == 'seasonal'):
         clim_fire_grid_df= xarray.open_dataarray('../data/12km/climate/primary/tmax.nc').sel(time=slice('%s'%str(start_year), '%s'%str(final_year))).mean(dim= 'time').to_dataframe(name='Tmax').reset_index() #.dropna()
         clim_fire_grid_gdf= gpd.GeoDataFrame(clim_fire_grid_df.Tmax, crs= 'EPSG:5070', geometry= gpd.points_from_xy(clim_fire_grid_df.X, clim_fire_grid_df.Y))
         reg_indx_arr= update_reg_indx(clim_fire_grid_gdf)
@@ -1150,16 +1165,25 @@ def init_clim_fire_freq_df(res= '12km', tscale= 'monthly', start_year= 1984, fin
         coord_df= tmax_df[['X', 'Y']]
         coord_df['fire_freq']= np.zeros_like(len(coord_df), dtype= int)
         fires_df= pd.read_hdf('../data/clim_fire_size_12km_train_data.h5').append(pd.read_hdf('../data/clim_fire_size_12km_test_data.h5'), ignore_index= True)
+        
+        if tscale == 'longterm':
+            for ind in tqdm(range(len(fires_df))):
+                freqind= coord_df[(coord_df.X == fires_df.loc[[ind]]['grid_x'][ind]) & (coord_df.Y == fires_df.loc[[ind]]['grid_y'][ind])].index[0]
+                coord_df.loc[freqind, 'fire_freq']+=1
 
-        for ind in tqdm(range(len(fires_df))):
-            freqind= coord_df[(coord_df.X == fires_df.loc[[ind]]['grid_x'][ind]) & (coord_df.Y == fires_df.loc[[ind]]['grid_y'][ind])].index[0]
-            coord_df.loc[freqind, 'fire_freq']+=1
+            clim_df= pd.concat([clim_df, coord_df['fire_freq'], clim_fire_grid_df['reg_indx'], coord_df['X'], coord_df['Y']], axis=1)
+            #clim_df.loc[:, 'fire_freq']= clim_df['fire_freq']/clim_df['fire_freq'].max()
+        elif tscale == 'seasonal':
+            for ind in tqdm(range(len(fires_df))): #tqdm
+                if fires_df.loc[[ind]]['fire_month'][ind] in seas_arr:
+                    freqind= coord_df[(coord_df.X == fires_df.loc[[ind]]['grid_x'][ind]) & (coord_df.Y == fires_df.loc[[ind]]['grid_y'][ind])].index[0]
+                    coord_df.loc[freqind, 'fire_freq']+= 1
 
-        clim_df= pd.concat([clim_df, coord_df['fire_freq'], clim_fire_grid_df['reg_indx'], coord_df['X'], coord_df['Y']], axis=1)
-        #clim_df.loc[:, 'fire_freq']= clim_df['fire_freq']/clim_df['fire_freq'].max()
+            clim_df= pd.concat([clim_df, coord_df['fire_freq'], clim_fire_grid_df['reg_indx'], coord_df['X'], coord_df['Y']], axis=1) 
+        
         for r in tqdm(range(19)):
             clim_df.loc[clim_df.groupby('reg_indx').get_group(r).index, 'fire_freq'] = clim_df.groupby('reg_indx').get_group(r)['fire_freq']/(clim_df.groupby('reg_indx').get_group(r)['fire_freq'].max())
-    
+
     return clim_df
 
 def drop_col_func(mod_type, rh_flag= False, vpd_rh_flag= False, add_var_flag= False, add_var_list= None):
