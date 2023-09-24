@@ -1,6 +1,6 @@
 # SMLFire1.0: a stochastic machine learning (SML) model for wildfire activity in the western United States
 
-A working repo for code, plots, and notes related to a SML based model of western US wildfires. The paper outlining the model and results is now available as a Geoscientific Model Development paper: https://gmd.copernicus.org/articles/16/3407/2023/gmd-16-3407-2023.html
+A working repo for code, plots, and notes related to a SML based model of western US wildfires. A manuscript outlining the model and results is now available as a Geoscientific Model Development paper: https://gmd.copernicus.org/articles/16/3407/2023/gmd-16-3407-2023.html
 
 Our study region with all fires between 1984 and 2020 is visualized with EPA Level III ecoregions below:
 ![plot](./paper_plots/github_repo_plot.png)
